@@ -1,4 +1,4 @@
-baseurl: /
+baseurl: https://derekborders.netlify.app
 languageCode: en-us
 title: Derek Borders
 theme: hugo-lithium
