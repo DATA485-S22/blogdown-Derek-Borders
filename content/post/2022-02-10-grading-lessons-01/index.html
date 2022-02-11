@@ -1,0 +1,61 @@
+---
+title: 'Lessons from grading graduate work as an undergrad'
+author: Derek Borders
+date: '2022-02-10'
+slug: grading-lessons-01
+categories: []
+tags: []
+---
+
+<script src="{{< blogdown/postref >}}index_files/header-attrs/header-attrs.js"></script>
+
+
+<div id="intro" class="section level1">
+<h1>Intro</h1>
+<p>Through a short series of bureaucratic happenstances, I find myself grading for a graduate-level machine learning course as an undergraduate. I excelled at my undergraduate machine learning, and the curriculum is essentially the same. Nonetheless, I expect some interesting tidbits may be gleaned from the experience.</p>
+</div>
+<div id="part-1" class="section level1">
+<h1>Part 1</h1>
+<div id="technical-stuff" class="section level2">
+<h2>Technical Stuff</h2>
+<p>In my first grading experience for the course, I have already learned or re-learned a few interesting things of a technical nature.</p>
+<div id="quicksort3" class="section level3">
+<h3>Quicksort3</h3>
+<p>I have spent my fair share of time with algorithms both in class and recreationally going down rabbit holes. I don’t know how I didn’t come across <a href="https://www.geeksforgeeks.org/3-way-quicksort-dutch-national-flag/">Quicksort3</a> before. Perhaps I just forgot it. It is certainly the way I am naturally inclined to handle duplicate values in a Quicksort scenario.</p>
+<p>The basic concept of Quicksort3 is to keep a third ‘middle’ list of values equal to the pivot, and only call the recursion with the values strictly less than or greater than the pivot.</p>
+</div>
+<div id="median-of-3" class="section level3">
+<h3>Median of 3</h3>
+<p><a href="https://www.cs.cornell.edu/courses/JavaAndDS/files/sort3Quicksort3.pdf">Median of 3</a><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a> is another instance of something I wanted to exist but hadn’t found (or had somehow forgotten). When I first encountered Quicksort (the first several times, in fact) I had to struggle to resist the urge to ruin the runtime complexity by hunting down the median at each stage of the recursion. Eventually I accepted that despite my distaste for using randomness in this type of situation, somebody else had proven and tested that randomness better than finding the median or picking the first, last, or middle element.</p>
+<p>It never occurred to me that the median could be roughly approximated to a useful extent by taking the median of the first, last, and center elements. This requires negligible overhead and apparently has been proven to be substantially faster on average than using a random pivot.</p>
+</div>
+<div id="pythons-list-comprehension" class="section level3">
+<h3>Python’s List Comprehension</h3>
+<p>I re-learned how Python’s <a href="https://www.w3schools.com/python/python_lists_comprehension.asp">list comprehension</a> works. I’ve never used it enough to form a lasting habit. Hopefully it’ll stick this time.</p>
+<p>As a reminder for anybody else in the same boat, Python’s list comprehension turns several lines of loop:</p>
+<pre eval="F," echo="T"><code>for item in list:
+  if a: 
+    b(item)
+  else: 
+    c(item)</code></pre>
+<p>into a clean, readable (if you keep it simple) one liner:</p>
+<pre eval="F," echo="T"><code>[b(item) for item in list if a else c(item)]</code></pre>
+<p>Obviously, this can quickly get out of hand and lead to ‘clever’ code that is impossible to read. Still, this is a tool I could safely use more in my own code.</p>
+</div>
+<div id="python-swaps" class="section level3">
+<h3>Python Swaps</h3>
+<p>I learned that swaps in python are as easy as <code>a,b = b,a</code> and apparently it’s <a href="https://betterprogramming.pub/you-didnt-truly-understand-the-infamous-python-trick-a-b-b-a-2e4e8634f5a9">more efficient</a> under the hood than I ever would have assumed.</p>
+</div>
+</div>
+<div id="observations" class="section level2">
+<h2>Observations</h2>
+<p>I was pleased and impressed, but not particularly surprised, at the overall higher quality of the submissions I was grading compared to the grading I’ve done for undergraduates before. Honestly, these were the caliber of submissions I expected to be standard for undergrads when I transferred to a proper university from community college.</p>
+<p>It’s nice to see a class full of people who overhwelmingly deliver on not only the basic requirements of their assignments, but almost universally opted to include the suggested bonus features.</p>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>This link is a nice encapsulation of some basic Quicksort optimizations, including Median of 3.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
