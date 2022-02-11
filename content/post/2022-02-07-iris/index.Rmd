@@ -1,5 +1,5 @@
 ---
-title: Iris
+title: "Iris: The Hello World of Data Science"
 author: Derek Borders
 date: '2022-02-07'
 slug: iris
@@ -10,9 +10,17 @@ tags:
   - R Markdown
 ---
 
+![](https://www.luxe-provence.com/wp-content/uploads/2016/04/iris-provence-luxe.jpg)
+
 # Iris  
 
-Iris is sort of the 'Hello World' of data science. I like to use it when trying out new languages and tools. 
+The Iris data set is the 'Hello World' of data science.  
+
+It's small enough to be easy to understand at a glance, but large enough to have some interesting and demonstrative properties. It's great for exploring predictive and classification tools, for regression and clustering and for unsupervised and supervised machine learning techniques.
+
+It's also just fun and colorful in a way that appeals to the kid in all of us. 
+
+I personally love the set and I like to pull it out and play with it when trying out new languages and tools. 
 
 ## The Data  
 
@@ -20,7 +28,7 @@ The Iris dataset contains 50 observations each of the length and width of the pe
 
 ## What is a sepal anyway?
 
-I like to include a picture because until I encountered this set 'sepal' was not part of my personal vocabulary.
+I like to include a picture because, until I encountered this set, 'sepal' was not part of my personal vocabulary. I didn't even have a guess as to what a sepal was without a picture. Hell, I couldn't even have picked an Iris out of a lineup of a few flowers, despite growing up with some in the yard.
 
 ![](https://miro.medium.com/max/700/1*uo6VfVH87jRjMZWVdwq3Vw.png)
 
@@ -54,3 +62,7 @@ ggplot(df, aes(Petal.Width, Petal.Length, color=Species)) +
   
 ```
 
+
+# To be continued...  
+
+Definitely flesh this out into something because the other Derek is making you look like a chump. 
