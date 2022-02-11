@@ -1,5 +1,5 @@
 ---
-title: 'Lessons from grading graduate work as an undergrad: 01'
+title: 'Lessons from Grading Graduate Work as an Undergrad: 01'
 author: Derek Borders
 date: '2022-02-10'
 slug: grading-lessons-01
