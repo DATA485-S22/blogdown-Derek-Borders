@@ -16,7 +16,7 @@ tags:
 
 The Iris data set is the 'Hello World' of data science.  
 
-It's small enough to be easy to understand at a glance, but large enough to have some interesting and demonstrative properties. It's great for exploring predictive and classification tools, for regression and clustering and for unsupervised and supervised machine learning techniques.
+It's small enough to be easy to understand at a glance, but large enough to have some interesting and demonstrative properties. It's great for exploring predictive and classification models, for regression and clustering and for unsupervised and supervised machine learning techniques.
 
 It's also just fun and colorful in a way that appeals to the kid in all of us. 
 
