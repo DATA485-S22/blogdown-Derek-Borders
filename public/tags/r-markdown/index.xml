@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>R Markdown on Derek Borders</title>
+    <link>https://derekborders.netlify.app/tags/r-markdown/</link>
+    <description>Recent content in R Markdown on Derek Borders</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 07 Feb 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://derekborders.netlify.app/tags/r-markdown/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Iris: The Hello World of Data Science</title>
+      <link>https://derekborders.netlify.app/2022/02/07/iris/</link>
+      <pubDate>Mon, 07 Feb 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://derekborders.netlify.app/2022/02/07/iris/</guid>
+      <description>IrisThe famous Iris data set is the ‘Hello World’ of data science.
+It’s small enough to be easy to understand at a glance, but large enough to have some interesting and demonstrative properties. It’s great for exploring predictive and classification models, for regression and clustering and for unsupervised and supervised machine learning techniques.
+Iris is just fun and colorful in a way that appeals to the kid in all of us.</description>
+    </item>
+    
+  </channel>
+</rss>

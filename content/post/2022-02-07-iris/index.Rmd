@@ -14,21 +14,21 @@ tags:
 
 # Iris  
 
-The Iris data set is the 'Hello World' of data science.  
+The famous Iris data set is the 'Hello World' of data science.  
 
 It's small enough to be easy to understand at a glance, but large enough to have some interesting and demonstrative properties. It's great for exploring predictive and classification models, for regression and clustering and for unsupervised and supervised machine learning techniques.
 
-It's also just fun and colorful in a way that appeals to the kid in all of us. 
+Iris is just fun and colorful in a way that appeals to the kid in all of us. It doesn't hurt that it's an innocent dataset with no sociopolitical baggage either. 
 
-I personally love the set and I like to pull it out and play with it when trying out new languages and tools. 
+I personally love the set and I like to dust it off when trying out new languages and tools.
 
 ## The Data  
 
-The Iris dataset contains 50 observations each of the length and width of the petals and sepals of three species of irises (150 total sample size). 
+The Iris dataset contains 150 observations of five variables. There are 50 observations each for the three species of iris: Setosa, Versicolor, and Verginica. Each observation gives the length and width (in centimeters) of the petals and sepals of the flowers. 
 
 ## What is a sepal anyway?
 
-I like to include a picture because, until I encountered this set, 'sepal' was not part of my personal vocabulary. I didn't even have a guess as to what a sepal was without a picture. Hell, I couldn't even have picked an Iris out of a lineup of a few flowers, despite growing up with some in the yard.
+I like to include a picture at this point because, until I encountered this set, 'sepal' was not part of my personal vocabulary. I didn't even have a guess as to what a sepal was without a picture. Hell, I couldn't even have picked an Iris out of a lineup of a few flowers, despite growing up with some in the yard (I think, they were purple, at any rate).
 
 ![](https://miro.medium.com/max/700/1*uo6VfVH87jRjMZWVdwq3Vw.png)
 
