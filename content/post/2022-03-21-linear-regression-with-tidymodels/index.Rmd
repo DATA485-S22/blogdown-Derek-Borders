@@ -1,0 +1,205 @@
+---
+title: Linear Regression with Tidymodels
+author: Derek Borders
+date: '2022-03-21'
+slug: linear-regression-with-tidymodels
+categories:
+  - R
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(message=FALSE)
+knitr::opts_chunk$set(warning=FALSE)
+knitr::opts_chunk$set(error=FALSE)
+```
+
+
+## Introduction  
+
+This tutorial will walk through the basics of how to implement a linear regression model using Tidymodels. This tutorial is inspired by [ISLR tidymodels lab 3](https://emilhvitfeldt.github.io/ISLR-tidymodels-labs/linear-regression.html). 
+
+## Data Set 
+
+We will use the [California Housing data set from sklearn](https://scikit-learn.org/stable/datasets/real_world.html#california-housing-dataset). This data set comes form a Python library. To work with this in R, we have exported the pandas dataframe to a .csv using a personal [Google Colab notebook](https://colab.research.google.com/drive/1CLGfb62Rl_XSpxBeA43beGZuGvurdoKF#scrollTo=vfoFGNSJJUFm) and will import that .csv into R. This data set was obtained by scikit learn from the [StatLib repository](https://www.dcc.fc.up.pt/~ltorgo/Regression/cal_housing.html).^[I should have just pulled it from here but I already did the Colab thing.] 
+
+```{r}
+library(readr)
+df <- read_csv("ca_housing.csv")
+```
+
+
+The data set was derived from the 1990 US census, using one row per census block group. Block groups typically have a population of 600 to 3,000 individuals and are the smallest geographical unit for which the Census Bureau publishes sample data. 
+
+The set contains 8 numeric feature variables and a numeric target variable. The target is the median house value for block groups, expressed in hundreds of thousands of US dollars. 
+
+The feature variables are: 
+
+| Variable | Description |
+| ----------- | ----------- |
+| `MedInc` | median income in block group  |
+| `HouseAge` | median house age in block group  |
+| `AveRooms` | average number of rooms per household  |
+| `AveBedrms` | average number of bedrooms per household  |
+| `Population` | block group population  |
+| `AveOccup` | average number of household members  |
+| `Latitude` | block group latitude  |
+| `Longitude` | block group longitude  |
+
+
+
+> A household is a group of people residing within a home. Since the average
+number of rooms and bedrooms in this dataset are provided per household, these
+columns may take surpinsingly large values for block groups with few households
+and many empty houses, such as vacation resorts.^[Quoted from set description. The rest of the section is paraphrased from the same.] 
+ 
+Units on median income are not given. We are going to assume the median income is expressed in tens of thousands of US dollars.^[The median household income for California in 1990 was about $33k https://fred.stlouisfed.org/series/MEHOINUSCAA646N]
+
+
+## Libraries 
+
+In addition to the tidymodels specific tools we will be using, we will make use of the `dplyr` and `ggplot2` packages, which are part of the tidyverse and loaded when we load tidymodels. We will also use the `hrbrthemes` package for a nicely formatted default plot.
+
+
+```{r}
+library(tidymodels) # Why we're here
+library(hrbrthemes) # Just a nice theme
+```
+
+## Feature Selection Hand Waving
+
+Feature selection is a complex topic that merits its own series of tutorials. This is not our focus here, however. We will arbitrarily choose to run a simple linear regression using median income as a predictor. 
+
+
+## EDA Hand Waving  
+
+We will also gloss over the exploratory data analysis we would have to do to show that there are far too many observations with median house values of \$500,000 and deducing that this value seems to indicate \$500,000 and above. 
+We will, however, take a look at a scatter plot of a random sample of 5000 observations to see the basic distribution and get a visual for the point cloud onto which we will be fitting our linear model.
+
+```{r echo=FALSE}
+df %>%
+  filter(MedHouseVal < 5) %>%
+  slice_sample(n=5000) %>%
+  ggplot(aes(MedInc, MedHouseVal)) +
+  geom_point(alpha=.1, color="#538039") +
+  theme_ipsum(base_family="Sans") + 
+  theme(panel.grid.minor=element_blank()) +
+  labs(
+    title="CA Housing Prices by Block Group",
+    subtitle="Standard",
+    x="Median Income / $10,000",
+    y="Median House Value / $100,000"
+  )
+```
+
+From this plot we can see that we have a reasonable candidate for linear regression. There are no obvious curves to the point cloud. There is clearly some correlation between the two variables.
+
+We shouldn't expect a linear regression to be anything close to perfect though. The spread of the points is substantial and does not appear to be constant, which does violate one of the assumptions we make when using linear regression.
+
+
+```{r, cache=FALSE, echo=FALSE}
+df %>%
+  filter(MedHouseVal < 5) %>%
+  slice_sample(n=5000) %>%
+  ggplot(aes(log10(10000*MedInc), log10(100000*MedHouseVal))) +
+  geom_point(alpha=.1, color="#538039") +
+  theme_ipsum(base_family="Sans") + 
+  theme(panel.grid.minor=element_blank()) +
+  labs(
+    title="CA Housing Prices by Block Group",
+    subtitle="Base 10 Logarithms",
+    x="Log 10 of Median Income",
+    y="Log 10 of Median House Value"
+  )
+```
+
+A linear model may actually work better on logs of our variables. Taking the log of both variables tends to even out plots like this where the variance expands with values. We'll stick to the simple linear regression for now though.
+
+## Training and Testing Data  
+
+If we were building a model for prediction, now--or preferrably before we even did our EDA--would be the time to split our data into training and testing sets. For the purposes of our tutorial, we'll keep it simple and  say that we're building this model for explanatory purposes only. 
+
+
+## Simple Linear Regression  
+
+First we will create a `parsnip` specification for a linear regression model and storing the resulting model object. 
+
+```{r}
+reg.model <- linear_reg() %>%
+  set_mode("regression") %>%    # Technically unnecessary for 'lm'
+  set_engine("lm")
+```
+
+Once we have our chosen model object, we fit it using a formula argument much like we would when we aren't using `tidymodels.` 
+
+```{r}
+reg.fit <- reg.model %>%
+  fit(MedHouseVal ~ MedInc, data=df)
+```
+
+## Mission Accomplished  
+
+Technically, at this point we have achieved our goal. We have trained a simple linear regression model on our chosen data set using `tidymodels.`
+
+
+## Results  
+
+Now that we have our trained model, we should take a look at the results. We can do this using some features of the `parsnips` package. 
+
+### What Does the Model Say?
+
+`pluck("fit")` will tell us about our model. 
+
+
+
+```{r, comment=""}
+reg.fit %>%
+  pluck("fit") 
+```
+
+`stats` reminds us how we got this model and `coefficients` gives us the parameters for our model. In this case, our model looks like: 
+
+$$
+\frac{\text{Median House Value}}{100,000\text{ USD}}= .4509 + .4179 \cdot \frac{\text{Median Income}}{10,000\text{ USD}}
+$$
+or (if I can math properly...)
+
+$$
+\text{Median House Value}= 45,090 + 4.179 \cdot \text{Median Income}
+$$
+
+So our model says that on average for block groups, the median house value is a little more than four times the median income + \$45,000. 
+
+Intuitively, this feels relatively reasonable, though the $45k is probably very low after 30 years of inflation. I have a feeling the slope may have gotten steeper in that time as well. But conceptually the model doesn't sound insane. 
+
+
+
+### How Good is the Model?  
+
+`summary()` will tell us more about the model, including some common performance metrics.
+
+```{r, comment=""}
+reg.fit %>%
+  pluck("fit") %>%
+  summary() 
+```
+
+From this summary, we can see that the relationship between our explanatory and dependent variables is statistically significant (99% confidence level / $\alpha <.001$). 
+
+We can also see that, as we anticipated, our model does explain a large portion of the variance (around 47% based on our R-squared), but it doesn't come close to explaining all of it. 
+
+### Et Cetera  
+
+From here, we would normally plot our predicted values against our actual values, examine the distribution of residuals, plot residuals against our variables, hunt for patterns, refine our model by iterations, and so forth. We've already continued beyond our initial goal though, so we'll call it a day.
+
+
+<br />
+<hr />
+<br />
+
+$$\mathcal{FIN}$$  
+
+That's it. 
+
+You're done.
+
+Off with you.

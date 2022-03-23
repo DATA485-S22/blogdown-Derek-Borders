@@ -1,0 +1,185 @@
+---
+title: Linear Regression with Tidymodels
+author: Derek Borders
+date: '2022-03-21'
+slug: linear-regression-with-tidymodels
+categories:
+  - R
+---
+
+<script src="{{< blogdown/postref >}}index_files/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level2">
+<h2>Introduction</h2>
+<p>This tutorial will walk through the basics of how to implement a linear regression model using Tidymodels. This tutorial is inspired by <a href="https://emilhvitfeldt.github.io/ISLR-tidymodels-labs/linear-regression.html">ISLR tidymodels lab 3</a>.</p>
+</div>
+<div id="data-set" class="section level2">
+<h2>Data Set</h2>
+<p>We will use the <a href="https://scikit-learn.org/stable/datasets/real_world.html#california-housing-dataset">California Housing data set from sklearn</a>. This data set comes form a Python library. To work with this in R, we have exported the pandas dataframe to a .csv using a personal <a href="https://colab.research.google.com/drive/1CLGfb62Rl_XSpxBeA43beGZuGvurdoKF#scrollTo=vfoFGNSJJUFm">Google Colab notebook</a> and will import that .csv into R. This data set was obtained by scikit learn from the <a href="https://www.dcc.fc.up.pt/~ltorgo/Regression/cal_housing.html">StatLib repository</a>.<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a></p>
+<pre class="r"><code>library(readr)
+df &lt;- read_csv(&quot;ca_housing.csv&quot;)</code></pre>
+<p>The data set was derived from the 1990 US census, using one row per census block group. Block groups typically have a population of 600 to 3,000 individuals and are the smallest geographical unit for which the Census Bureau publishes sample data.</p>
+<p>The set contains 8 numeric feature variables and a numeric target variable. The target is the median house value for block groups, expressed in hundreds of thousands of US dollars.</p>
+<p>The feature variables are:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Variable</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>MedInc</code></td>
+<td>median income in block group</td>
+</tr>
+<tr class="even">
+<td><code>HouseAge</code></td>
+<td>median house age in block group</td>
+</tr>
+<tr class="odd">
+<td><code>AveRooms</code></td>
+<td>average number of rooms per household</td>
+</tr>
+<tr class="even">
+<td><code>AveBedrms</code></td>
+<td>average number of bedrooms per household</td>
+</tr>
+<tr class="odd">
+<td><code>Population</code></td>
+<td>block group population</td>
+</tr>
+<tr class="even">
+<td><code>AveOccup</code></td>
+<td>average number of household members</td>
+</tr>
+<tr class="odd">
+<td><code>Latitude</code></td>
+<td>block group latitude</td>
+</tr>
+<tr class="even">
+<td><code>Longitude</code></td>
+<td>block group longitude</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>A household is a group of people residing within a home. Since the average
+number of rooms and bedrooms in this dataset are provided per household, these
+columns may take surpinsingly large values for block groups with few households
+and many empty houses, such as vacation resorts.<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a></p>
+</blockquote>
+<p>Units on median income are not given. We are going to assume the median income is expressed in tens of thousands of US dollars.<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a></p>
+</div>
+<div id="libraries" class="section level2">
+<h2>Libraries</h2>
+<p>In addition to the tidymodels specific tools we will be using, we will make use of the <code>dplyr</code> and <code>ggplot2</code> packages, which are part of the tidyverse and loaded when we load tidymodels. We will also use the <code>hrbrthemes</code> package for a nicely formatted default plot.</p>
+<pre class="r"><code>library(tidymodels) # Why we&#39;re here
+library(hrbrthemes) # Just a nice theme</code></pre>
+</div>
+<div id="feature-selection-hand-waving" class="section level2">
+<h2>Feature Selection Hand Waving</h2>
+<p>Feature selection is a complex topic that merits its own series of tutorials. This is not our focus here, however. We will arbitrarily choose to run a simple linear regression using median income as a predictor.</p>
+</div>
+<div id="eda-hand-waving" class="section level2">
+<h2>EDA Hand Waving</h2>
+<p>We will also gloss over the exploratory data analysis we would have to do to show that there are far too many observations with median house values of $500,000 and deducing that this value seems to indicate $500,000 and above.
+We will, however, take a look at a scatter plot of a random sample of 5000 observations to see the basic distribution and get a visual for the point cloud onto which we will be fitting our linear model.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-4-1.png" width="672" /></p>
+<p>From this plot we can see that we have a reasonable candidate for linear regression. There are no obvious curves to the point cloud. There is clearly some correlation between the two variables.</p>
+<p>We shouldn’t expect a linear regression to be anything close to perfect though. The spread of the points is substantial and does not appear to be constant, which does violate one of the assumptions we make when using linear regression.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<p>A linear model may actually work better on logs of our variables. Taking the log of both variables tends to even out plots like this where the variance expands with values. We’ll stick to the simple linear regression for now though.</p>
+</div>
+<div id="training-and-testing-data" class="section level2">
+<h2>Training and Testing Data</h2>
+<p>If we were building a model for prediction, now–or preferrably before we even did our EDA–would be the time to split our data into training and testing sets. For the purposes of our tutorial, we’ll keep it simple and say that we’re building this model for explanatory purposes only.</p>
+</div>
+<div id="simple-linear-regression" class="section level2">
+<h2>Simple Linear Regression</h2>
+<p>First we will create a <code>parsnip</code> specification for a linear regression model and storing the resulting model object.</p>
+<pre class="r"><code>reg.model &lt;- linear_reg() %&gt;%
+  set_mode(&quot;regression&quot;) %&gt;%    # Technically unnecessary for &#39;lm&#39;
+  set_engine(&quot;lm&quot;)</code></pre>
+<p>Once we have our chosen model object, we fit it using a formula argument much like we would when we aren’t using <code>tidymodels.</code></p>
+<pre class="r"><code>reg.fit &lt;- reg.model %&gt;%
+  fit(MedHouseVal ~ MedInc, data=df)</code></pre>
+</div>
+<div id="mission-accomplished" class="section level2">
+<h2>Mission Accomplished</h2>
+<p>Technically, at this point we have achieved our goal. We have trained a simple linear regression model on our chosen data set using <code>tidymodels.</code></p>
+</div>
+<div id="results" class="section level2">
+<h2>Results</h2>
+<p>Now that we have our trained model, we should take a look at the results. We can do this using some features of the <code>parsnips</code> package.</p>
+<div id="what-does-the-model-say" class="section level3">
+<h3>What Does the Model Say?</h3>
+<p><code>pluck("fit")</code> will tell us about our model.</p>
+<pre class="r"><code>reg.fit %&gt;%
+  pluck(&quot;fit&quot;) </code></pre>
+<pre><code>
+Call:
+stats::lm(formula = MedHouseVal ~ MedInc, data = data)
+
+Coefficients:
+(Intercept)       MedInc  
+     0.4509       0.4179  </code></pre>
+<p><code>stats</code> reminds us how we got this model and <code>coefficients</code> gives us the parameters for our model. In this case, our model looks like:</p>
+<p><span class="math display">\[
+\frac{\text{Median House Value}}{100,000\text{ USD}}= .4509 + .4179 \cdot \frac{\text{Median Income}}{10,000\text{ USD}}
+\]</span>
+or (if I can math properly…)</p>
+<p><span class="math display">\[
+\text{Median House Value}= 45,090 + 4.179 \cdot \text{Median Income}
+\]</span></p>
+<p>So our model says that on average for block groups, the median house value is a little more than four times the median income + $45,000.</p>
+<p>Intuitively, this feels relatively reasonable, though the $45k is probably very low after 30 years of inflation. I have a feeling the slope may have gotten steeper in that time as well. But conceptually the model doesn’t sound insane.</p>
+</div>
+<div id="how-good-is-the-model" class="section level3">
+<h3>How Good is the Model?</h3>
+<p><code>summary()</code> will tell us more about the model, including some common performance metrics.</p>
+<pre class="r"><code>reg.fit %&gt;%
+  pluck(&quot;fit&quot;) %&gt;%
+  summary() </code></pre>
+<pre><code>
+Call:
+stats::lm(formula = MedHouseVal ~ MedInc, data = data)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-5.4070 -0.5595 -0.1698  0.3698  4.3402 
+
+Coefficients:
+            Estimate Std. Error t value Pr(&gt;|t|)    
+(Intercept) 0.450856   0.013229   34.08   &lt;2e-16 ***
+MedInc      0.417938   0.003068  136.22   &lt;2e-16 ***
+---
+Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+
+Residual standard error: 0.8374 on 20638 degrees of freedom
+Multiple R-squared:  0.4734,    Adjusted R-squared:  0.4734 
+F-statistic: 1.856e+04 on 1 and 20638 DF,  p-value: &lt; 2.2e-16</code></pre>
+<p>From this summary, we can see that the relationship between our explanatory and dependent variables is statistically significant (99% confidence level / <span class="math inline">\(\alpha &lt;.001\)</span>).</p>
+<p>We can also see that, as we anticipated, our model does explain a large portion of the variance (around 47% based on our R-squared), but it doesn’t come close to explaining all of it.</p>
+</div>
+<div id="et-cetera" class="section level3">
+<h3>Et Cetera</h3>
+<p>From here, we would normally plot our predicted values against our actual values, examine the distribution of residuals, plot residuals against our variables, hunt for patterns, refine our model by iterations, and so forth. We’ve already continued beyond our initial goal though, so we’ll call it a day.</p>
+<br />
+<hr />
+<p><br /></p>
+<p><span class="math display">\[\mathcal{FIN}\]</span></p>
+<p>That’s it.</p>
+<p>You’re done.</p>
+<p>Off with you.</p>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>I should have just pulled it from here but I already did the Colab thing.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>Quoted from set description. The rest of the section is paraphrased from the same.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>The median household income for California in 1990 was about $33k <a href="https://fred.stlouisfed.org/series/MEHOINUSCAA646N" class="uri">https://fred.stlouisfed.org/series/MEHOINUSCAA646N</a><a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
