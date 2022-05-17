@@ -1,0 +1,64 @@
+---
+title: Tree and Forest Tuning
+subtitle: An Exploration of Hyperparameters
+author: Derek Borders
+date: '2022-05-16'
+slug: tree-and-forest-tuning
+categories: []
+tags: []
+---
+
+
+
+<div id="intro" class="section level1">
+<h1>Intro</h1>
+<p>Today I want to explore the process of model tuning within the context of the family of tree based models which conveniently share most of their hyperparameters.</p>
+<p>Tree based models mostly fit into a strict hierarchy. At the root is the basic decision tree. A decision tree makes predictions by making decisions based on predictor variables about how to split the data. Each decision results in a binary split that improves the ‘purity’ of training samples in the resulting groups. This is a very interpretable model that doesn’t always generalize particularly well. That is, decision trees’ fatal flaw is that they are very prone to overfitting.</p>
+<p>The next level is bagging, which uses a series of subsets of the training data to train a bunch of trees and averages (or otherwise combines) their decisions. This looks a lot like k-fold cross validation or bootstrapping, depending on the size of the samples and whether replacement is allowed. This helps a lot, but there is still room for improvement.</p>
+<p>Random forest improves on bagging by introducing some chaos into the growth of trees to reduce overfitting even further. This chaos takes the form of limiting the predictors available at each decision point of each tree to a random subset of the predictors. This allows for more variation in the shape of individual trees, reducing the accuracy of individual trees but improving the accuracy of the ensemble as a whole. Random forest works very well for many things, even with default parameters.</p>
+<p>Beyond random forest we get into ensembles that are essentially “less-random forests” or “smart forests”. Two common models in this category are Gradient Boosted Models (GBM, GBC, GBR) and Bayesian Additive Regression Trees (BART). The main feature of these ‘smart forests’ is that each tree or group of trees is not grown completely at random, but rather is influenced by the residual variance in the predictions of the existing trees. The strength of the influence of prior trees is controlled by a learning rate parameter. These models are more powerful than random forest, but also more sensitive to proper tuning.</p>
+<div id="trees" class="section level2">
+<h2>Trees</h2>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-1"></span>
+<img src="tree.jpg" alt="A giant rain tree. Image: Wikipedia" width="80%" />
+<p class="caption">
+Figure 1: A giant rain tree. Image: Wikipedia
+</p>
+</div>
+<p>The parameters that can be tuned for decision trees varies by the toolset or algorithm being used and the optional features implemented. Whether or not they can be tuned by specific tools, the following parameters are part of any decision tree model.<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a></p>
+<div id="purity-criterion" class="section level3">
+<h3>Purity Criterion</h3>
+<p>This determines whether ‘Entropy’ or the ‘Gini Index’ is used to evaluate node purity and what constitutes the best split. These two <a href="https://quantdare.com/decision-trees-gini-vs-entropy/">metrics are very similar</a> and the distinction usually isn’t important for tuning. The main practical difference is that Gini is less computationally expensive.</p>
+<p>We will ignore this for now. The linked post does a good job of examining the difference if the reader is interested.</p>
+</div>
+<div id="tree-size-maximum-depth-maximum-leaf-nodes" class="section level3">
+<h3>Tree Size: Maximum Depth &amp; Maximum Leaf Nodes</h3>
+<p>These parameters both serve to limit the overall size and therefore complexity of trees to reduce overfitting.</p>
+<p>Maximum Depth limits the height of the tree, indirectly limiting the leaf nodes to <span class="math inline">\(2^k\)</span> for a tree of height <span class="math inline">\(k\)</span>. This might result in some unavailable decisions at another layer of depth being unavailable while less good decisions are allowed at a higher level. On the other hand, this prevents the formation of trees that continuously subdivide the same node.</p>
+<p>Maximum leaf nodes, on the other hand, directly limit the number of possible leaf nodes. This allows for the growth of less balanced trees in pursuit of the best decisions available at each step. It also allows for a finer level of control on tree size, especially for larger trees where each level doubles the number of possible decisions.</p>
+<p>These two parameters can work together or one can render the other moot, but they never work against each other. For example, a max depth of 4 and a max leaf nodes of 25 is the same as just using the max depth of 4. On the other hand, a max depth of 5 and a max leaf nodes of 10 can be seen as limiting the lankiness of a max leaf nodes 10 tree or limiting the fullness of the max depth 5 tree.</p>
+<p>Most of the time, tuning one of these is plenty. However, if they are both tuned, they should be tuned in tandem to make sure both values are useful.</p>
+</div>
+</div>
+<div id="random-forest" class="section level2">
+<h2>Random Forest</h2>
+<p><img src="forest2.jpg" width="80%" style="display: block; margin: auto;" /></p>
+<p><a href="https://www.freepik.com/photos/haunted">Image by kjpargeter - www.freepik.com</a></p>
+</div>
+<div id="gradient-boosted-ensemble" class="section level2">
+<h2>Gradient Boosted Ensemble</h2>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-3"></span>
+<img src="smart-forest2.jpg" alt="Intelligent forest. " width="80%" />
+<p class="caption">
+Figure 2: Intelligent forest.
+</p>
+</div>
+<p><a href="https://thekidshouldseethis.com/post/the-wood-wide-web-how-trees-secretly-talk-to-and-share-with-each-other">Image: TKSST</a></p>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>Although this post focuses on R and Tidymodels, the parameter lists are based on sklearn models as they have more robust lists of adjustable parameters. Here, the decision tree classifier was my main reference.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

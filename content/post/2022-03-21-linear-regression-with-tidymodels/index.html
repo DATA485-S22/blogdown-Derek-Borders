@@ -89,8 +89,12 @@ We will, however, take a look at a scatter plot of a random sample of 5000 obser
 <p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-4-1.png" width="672" /></p>
 <p>From this plot we can see that we have a reasonable candidate for linear regression. There are no obvious curves to the point cloud. There is clearly some correlation between the two variables.</p>
 <p>We shouldn’t expect a linear regression to be anything close to perfect though. The spread of the points is substantial and does not appear to be constant, which does violate one of the assumptions we make when using linear regression.</p>
+</div>
+<div id="transfromations" class="section level2">
+<h2>Transfromations</h2>
+<p>A linear model may actually work better on logs of our variables. Taking the log of both variables tends to even out plots like this where the variance expands with values.</p>
 <p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
-<p>A linear model may actually work better on logs of our variables. Taking the log of both variables tends to even out plots like this where the variance expands with values. We’ll stick to the simple linear regression for now though.</p>
+<p>To build a model based on this transformation, we would want to add columns for the logs of our two variables. This is simple enough, but our model becomes substantially less intuitive to understand when we do that. Plus, transformations aren’t what this tutorial is about. We’ll stick to the simple linear regression.</p>
 </div>
 <div id="training-and-testing-data" class="section level2">
 <h2>Training and Testing Data</h2>
