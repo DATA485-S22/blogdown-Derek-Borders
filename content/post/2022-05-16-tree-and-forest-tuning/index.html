@@ -8,57 +8,2139 @@ categories: []
 tags: []
 ---
 
+<script src="{{< blogdown/postref >}}index_files/kePrint/kePrint.js"></script>
+<link href="{{< blogdown/postref >}}index_files/lightable/lightable.css" rel="stylesheet" />
+<link href="{{< blogdown/postref >}}index_files/bsTable/bootstrapTable.min.css" rel="stylesheet" />
+<script src="{{< blogdown/postref >}}index_files/bsTable/bootstrapTable.js"></script>
 
 
 <div id="intro" class="section level1">
 <h1>Intro</h1>
 <p>Today I want to explore the process of model tuning within the context of the family of tree based models which conveniently share most of their hyperparameters.</p>
-<p>Tree based models mostly fit into a strict hierarchy. At the root is the basic decision tree. A decision tree makes predictions by making decisions based on predictor variables about how to split the data. Each decision results in a binary split that improves the ‘purity’ of training samples in the resulting groups. This is a very interpretable model that doesn’t always generalize particularly well. That is, decision trees’ fatal flaw is that they are very prone to overfitting.</p>
-<p>The next level is bagging, which uses a series of subsets of the training data to train a bunch of trees and averages (or otherwise combines) their decisions. This looks a lot like k-fold cross validation or bootstrapping, depending on the size of the samples and whether replacement is allowed. This helps a lot, but there is still room for improvement.</p>
-<p>Random forest improves on bagging by introducing some chaos into the growth of trees to reduce overfitting even further. This chaos takes the form of limiting the predictors available at each decision point of each tree to a random subset of the predictors. This allows for more variation in the shape of individual trees, reducing the accuracy of individual trees but improving the accuracy of the ensemble as a whole. Random forest works very well for many things, even with default parameters.</p>
-<p>Beyond random forest we get into ensembles that are essentially “less-random forests” or “smart forests”. Two common models in this category are Gradient Boosted Models (GBM, GBC, GBR) and Bayesian Additive Regression Trees (BART). The main feature of these ‘smart forests’ is that each tree or group of trees is not grown completely at random, but rather is influenced by the residual variance in the predictions of the existing trees. The strength of the influence of prior trees is controlled by a learning rate parameter. These models are more powerful than random forest, but also more sensitive to proper tuning.</p>
-<div id="trees" class="section level2">
-<h2>Trees</h2>
-<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-1"></span>
-<img src="tree.jpg" alt="A giant rain tree. Image: Wikipedia" width="80%" />
+<p>We will be using Tidymodels in R and will use one of their tutorials as a starting point: <a href="https://www.tidymodels.org/start/tuning/">Getting Started 4: Tune Model Parameters</a>. We will use the same <a href="https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-8-340">cell image</a> data from this tutorial and will be utilizing the same tools from the <a href="https://tune.tidymodels.org/">tune</a> package in the process.</p>
+<pre class="r"><code>library(tidymodels)  # for many things, including tune
+library(rpart.plot)  # for visualizing a decision tree
+library(vip)         # for variable importance plots</code></pre>
+<div id="data" class="section level2">
+<h2>Data</h2>
+<p>The cells data has class labels for 2019 cells — each cell is labeled as either poorly segmented (PS) or well-segmented (WS). Each also has a total of 56 predictors based on automated image analysis measurements. For example, avg_inten_ch_1 is the mean intensity of the data contained in the nucleus, area_ch_1 is the total size of the cell, and so on (some predictors are fairly arcane in nature).<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a></p>
+<p>The most important things to keep in mind when tuning our models will be that we have 2019 observations and 56 predictors.</p>
+<pre class="r"><code>data(cells, package = &quot;modeldata&quot;)
+kable(head(cells)) %&gt;%
+  kable_styling(bootstrap_options = c(&quot;striped&quot;, &quot;hover&quot;, &quot;condensed&quot;)) %&gt;%
+  scroll_box(width = &quot;100%&quot;)</code></pre>
+<div style="border: 1px solid #ddd; padding: 5px; overflow-x: scroll; width:100%; ">
+<table class="table table-striped table-hover table-condensed" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:left;">
+case
+</th>
+<th style="text-align:left;">
+class
+</th>
+<th style="text-align:right;">
+angle_ch_1
+</th>
+<th style="text-align:right;">
+area_ch_1
+</th>
+<th style="text-align:right;">
+avg_inten_ch_1
+</th>
+<th style="text-align:right;">
+avg_inten_ch_2
+</th>
+<th style="text-align:right;">
+avg_inten_ch_3
+</th>
+<th style="text-align:right;">
+avg_inten_ch_4
+</th>
+<th style="text-align:right;">
+convex_hull_area_ratio_ch_1
+</th>
+<th style="text-align:right;">
+convex_hull_perim_ratio_ch_1
+</th>
+<th style="text-align:right;">
+diff_inten_density_ch_1
+</th>
+<th style="text-align:right;">
+diff_inten_density_ch_3
+</th>
+<th style="text-align:right;">
+diff_inten_density_ch_4
+</th>
+<th style="text-align:right;">
+entropy_inten_ch_1
+</th>
+<th style="text-align:right;">
+entropy_inten_ch_3
+</th>
+<th style="text-align:right;">
+entropy_inten_ch_4
+</th>
+<th style="text-align:right;">
+eq_circ_diam_ch_1
+</th>
+<th style="text-align:right;">
+eq_ellipse_lwr_ch_1
+</th>
+<th style="text-align:right;">
+eq_ellipse_oblate_vol_ch_1
+</th>
+<th style="text-align:right;">
+eq_ellipse_prolate_vol_ch_1
+</th>
+<th style="text-align:right;">
+eq_sphere_area_ch_1
+</th>
+<th style="text-align:right;">
+eq_sphere_vol_ch_1
+</th>
+<th style="text-align:right;">
+fiber_align_2_ch_3
+</th>
+<th style="text-align:right;">
+fiber_align_2_ch_4
+</th>
+<th style="text-align:right;">
+fiber_length_ch_1
+</th>
+<th style="text-align:right;">
+fiber_width_ch_1
+</th>
+<th style="text-align:right;">
+inten_cooc_asm_ch_3
+</th>
+<th style="text-align:right;">
+inten_cooc_asm_ch_4
+</th>
+<th style="text-align:right;">
+inten_cooc_contrast_ch_3
+</th>
+<th style="text-align:right;">
+inten_cooc_contrast_ch_4
+</th>
+<th style="text-align:right;">
+inten_cooc_entropy_ch_3
+</th>
+<th style="text-align:right;">
+inten_cooc_entropy_ch_4
+</th>
+<th style="text-align:right;">
+inten_cooc_max_ch_3
+</th>
+<th style="text-align:right;">
+inten_cooc_max_ch_4
+</th>
+<th style="text-align:right;">
+kurt_inten_ch_1
+</th>
+<th style="text-align:right;">
+kurt_inten_ch_3
+</th>
+<th style="text-align:right;">
+kurt_inten_ch_4
+</th>
+<th style="text-align:right;">
+length_ch_1
+</th>
+<th style="text-align:right;">
+neighbor_avg_dist_ch_1
+</th>
+<th style="text-align:right;">
+neighbor_min_dist_ch_1
+</th>
+<th style="text-align:right;">
+neighbor_var_dist_ch_1
+</th>
+<th style="text-align:right;">
+perim_ch_1
+</th>
+<th style="text-align:right;">
+shape_bfr_ch_1
+</th>
+<th style="text-align:right;">
+shape_lwr_ch_1
+</th>
+<th style="text-align:right;">
+shape_p_2_a_ch_1
+</th>
+<th style="text-align:right;">
+skew_inten_ch_1
+</th>
+<th style="text-align:right;">
+skew_inten_ch_3
+</th>
+<th style="text-align:right;">
+skew_inten_ch_4
+</th>
+<th style="text-align:right;">
+spot_fiber_count_ch_3
+</th>
+<th style="text-align:right;">
+spot_fiber_count_ch_4
+</th>
+<th style="text-align:right;">
+total_inten_ch_1
+</th>
+<th style="text-align:right;">
+total_inten_ch_2
+</th>
+<th style="text-align:right;">
+total_inten_ch_3
+</th>
+<th style="text-align:right;">
+total_inten_ch_4
+</th>
+<th style="text-align:right;">
+var_inten_ch_1
+</th>
+<th style="text-align:right;">
+var_inten_ch_3
+</th>
+<th style="text-align:right;">
+var_inten_ch_4
+</th>
+<th style="text-align:right;">
+width_ch_1
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+Test
+</td>
+<td style="text-align:left;">
+PS
+</td>
+<td style="text-align:right;">
+143.248
+</td>
+<td style="text-align:right;">
+185
+</td>
+<td style="text-align:right;">
+15.71
+</td>
+<td style="text-align:right;">
+4.955
+</td>
+<td style="text-align:right;">
+9.548
+</td>
+<td style="text-align:right;">
+2.215
+</td>
+<td style="text-align:right;">
+1.125
+</td>
+<td style="text-align:right;">
+0.9197
+</td>
+<td style="text-align:right;">
+29.52
+</td>
+<td style="text-align:right;">
+13.78
+</td>
+<td style="text-align:right;">
+6.827
+</td>
+<td style="text-align:right;">
+4.970
+</td>
+<td style="text-align:right;">
+4.371
+</td>
+<td style="text-align:right;">
+2.719
+</td>
+<td style="text-align:right;">
+15.37
+</td>
+<td style="text-align:right;">
+3.061
+</td>
+<td style="text-align:right;">
+337.0
+</td>
+<td style="text-align:right;">
+110.1
+</td>
+<td style="text-align:right;">
+742.1
+</td>
+<td style="text-align:right;">
+1901
+</td>
+<td style="text-align:right;">
+1.000
+</td>
+<td style="text-align:right;">
+1.000
+</td>
+<td style="text-align:right;">
+26.98
+</td>
+<td style="text-align:right;">
+7.410
+</td>
+<td style="text-align:right;">
+0.0112
+</td>
+<td style="text-align:right;">
+0.0504
+</td>
+<td style="text-align:right;">
+40.752
+</td>
+<td style="text-align:right;">
+13.895
+</td>
+<td style="text-align:right;">
+7.199
+</td>
+<td style="text-align:right;">
+5.250
+</td>
+<td style="text-align:right;">
+0.0774
+</td>
+<td style="text-align:right;">
+0.1720
+</td>
+<td style="text-align:right;">
+-0.6567
+</td>
+<td style="text-align:right;">
+-0.6081
+</td>
+<td style="text-align:right;">
+0.7258
+</td>
+<td style="text-align:right;">
+26.21
+</td>
+<td style="text-align:right;">
+370.5
+</td>
+<td style="text-align:right;">
+99.10
+</td>
+<td style="text-align:right;">
+127.96
+</td>
+<td style="text-align:right;">
+68.78
+</td>
+<td style="text-align:right;">
+0.6651
+</td>
+<td style="text-align:right;">
+2.462
+</td>
+<td style="text-align:right;">
+1.883
+</td>
+<td style="text-align:right;">
+0.4545
+</td>
+<td style="text-align:right;">
+0.4604
+</td>
+<td style="text-align:right;">
+1.2328
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+2781
+</td>
+<td style="text-align:right;">
+701
+</td>
+<td style="text-align:right;">
+1690
+</td>
+<td style="text-align:right;">
+392
+</td>
+<td style="text-align:right;">
+12.47
+</td>
+<td style="text-align:right;">
+7.609
+</td>
+<td style="text-align:right;">
+2.714
+</td>
+<td style="text-align:right;">
+10.64
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Train
+</td>
+<td style="text-align:left;">
+PS
+</td>
+<td style="text-align:right;">
+133.752
+</td>
+<td style="text-align:right;">
+819
+</td>
+<td style="text-align:right;">
+31.92
+</td>
+<td style="text-align:right;">
+206.879
+</td>
+<td style="text-align:right;">
+69.917
+</td>
+<td style="text-align:right;">
+164.154
+</td>
+<td style="text-align:right;">
+1.263
+</td>
+<td style="text-align:right;">
+0.7971
+</td>
+<td style="text-align:right;">
+31.88
+</td>
+<td style="text-align:right;">
+43.12
+</td>
+<td style="text-align:right;">
+79.308
+</td>
+<td style="text-align:right;">
+6.088
+</td>
+<td style="text-align:right;">
+6.643
+</td>
+<td style="text-align:right;">
+7.880
+</td>
+<td style="text-align:right;">
+32.31
+</td>
+<td style="text-align:right;">
+1.558
+</td>
+<td style="text-align:right;">
+2232.9
+</td>
+<td style="text-align:right;">
+1432.8
+</td>
+<td style="text-align:right;">
+3278.7
+</td>
+<td style="text-align:right;">
+17654
+</td>
+<td style="text-align:right;">
+1.488
+</td>
+<td style="text-align:right;">
+1.352
+</td>
+<td style="text-align:right;">
+64.28
+</td>
+<td style="text-align:right;">
+13.167
+</td>
+<td style="text-align:right;">
+0.0281
+</td>
+<td style="text-align:right;">
+0.0126
+</td>
+<td style="text-align:right;">
+8.228
+</td>
+<td style="text-align:right;">
+6.984
+</td>
+<td style="text-align:right;">
+6.822
+</td>
+<td style="text-align:right;">
+7.099
+</td>
+<td style="text-align:right;">
+0.1532
+</td>
+<td style="text-align:right;">
+0.0739
+</td>
+<td style="text-align:right;">
+-0.2488
+</td>
+<td style="text-align:right;">
+-0.3308
+</td>
+<td style="text-align:right;">
+-0.2653
+</td>
+<td style="text-align:right;">
+47.22
+</td>
+<td style="text-align:right;">
+174.4
+</td>
+<td style="text-align:right;">
+30.11
+</td>
+<td style="text-align:right;">
+81.38
+</td>
+<td style="text-align:right;">
+154.90
+</td>
+<td style="text-align:right;">
+0.5398
+</td>
+<td style="text-align:right;">
+1.468
+</td>
+<td style="text-align:right;">
+2.256
+</td>
+<td style="text-align:right;">
+0.3987
+</td>
+<td style="text-align:right;">
+0.6197
+</td>
+<td style="text-align:right;">
+0.5273
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+24964
+</td>
+<td style="text-align:right;">
+160998
+</td>
+<td style="text-align:right;">
+54675
+</td>
+<td style="text-align:right;">
+128368
+</td>
+<td style="text-align:right;">
+18.81
+</td>
+<td style="text-align:right;">
+56.715
+</td>
+<td style="text-align:right;">
+118.388
+</td>
+<td style="text-align:right;">
+32.16
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Train
+</td>
+<td style="text-align:left;">
+WS
+</td>
+<td style="text-align:right;">
+106.646
+</td>
+<td style="text-align:right;">
+431
+</td>
+<td style="text-align:right;">
+28.04
+</td>
+<td style="text-align:right;">
+116.316
+</td>
+<td style="text-align:right;">
+63.942
+</td>
+<td style="text-align:right;">
+106.697
+</td>
+<td style="text-align:right;">
+1.053
+</td>
+<td style="text-align:right;">
+0.9355
+</td>
+<td style="text-align:right;">
+32.49
+</td>
+<td style="text-align:right;">
+35.99
+</td>
+<td style="text-align:right;">
+51.357
+</td>
+<td style="text-align:right;">
+5.884
+</td>
+<td style="text-align:right;">
+6.683
+</td>
+<td style="text-align:right;">
+7.145
+</td>
+<td style="text-align:right;">
+23.45
+</td>
+<td style="text-align:right;">
+1.375
+</td>
+<td style="text-align:right;">
+802.2
+</td>
+<td style="text-align:right;">
+583.3
+</td>
+<td style="text-align:right;">
+1727.4
+</td>
+<td style="text-align:right;">
+6751
+</td>
+<td style="text-align:right;">
+1.300
+</td>
+<td style="text-align:right;">
+1.522
+</td>
+<td style="text-align:right;">
+21.14
+</td>
+<td style="text-align:right;">
+21.141
+</td>
+<td style="text-align:right;">
+0.0069
+</td>
+<td style="text-align:right;">
+0.0061
+</td>
+<td style="text-align:right;">
+14.446
+</td>
+<td style="text-align:right;">
+16.701
+</td>
+<td style="text-align:right;">
+7.580
+</td>
+<td style="text-align:right;">
+7.671
+</td>
+<td style="text-align:right;">
+0.0284
+</td>
+<td style="text-align:right;">
+0.0232
+</td>
+<td style="text-align:right;">
+-0.2935
+</td>
+<td style="text-align:right;">
+1.0513
+</td>
+<td style="text-align:right;">
+0.1506
+</td>
+<td style="text-align:right;">
+28.14
+</td>
+<td style="text-align:right;">
+158.5
+</td>
+<td style="text-align:right;">
+34.94
+</td>
+<td style="text-align:right;">
+90.44
+</td>
+<td style="text-align:right;">
+84.56
+</td>
+<td style="text-align:right;">
+0.7243
+</td>
+<td style="text-align:right;">
+1.328
+</td>
+<td style="text-align:right;">
+1.272
+</td>
+<td style="text-align:right;">
+0.4725
+</td>
+<td style="text-align:right;">
+0.9714
+</td>
+<td style="text-align:right;">
+0.3247
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:right;">
+11552
+</td>
+<td style="text-align:right;">
+47511
+</td>
+<td style="text-align:right;">
+26344
+</td>
+<td style="text-align:right;">
+43959
+</td>
+<td style="text-align:right;">
+17.30
+</td>
+<td style="text-align:right;">
+37.671
+</td>
+<td style="text-align:right;">
+49.471
+</td>
+<td style="text-align:right;">
+21.19
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Train
+</td>
+<td style="text-align:left;">
+PS
+</td>
+<td style="text-align:right;">
+69.150
+</td>
+<td style="text-align:right;">
+298
+</td>
+<td style="text-align:right;">
+19.46
+</td>
+<td style="text-align:right;">
+102.295
+</td>
+<td style="text-align:right;">
+28.218
+</td>
+<td style="text-align:right;">
+31.028
+</td>
+<td style="text-align:right;">
+1.203
+</td>
+<td style="text-align:right;">
+0.8658
+</td>
+<td style="text-align:right;">
+26.73
+</td>
+<td style="text-align:right;">
+22.92
+</td>
+<td style="text-align:right;">
+26.394
+</td>
+<td style="text-align:right;">
+5.420
+</td>
+<td style="text-align:right;">
+5.437
+</td>
+<td style="text-align:right;">
+5.778
+</td>
+<td style="text-align:right;">
+19.50
+</td>
+<td style="text-align:right;">
+3.391
+</td>
+<td style="text-align:right;">
+724.7
+</td>
+<td style="text-align:right;">
+213.7
+</td>
+<td style="text-align:right;">
+1194.9
+</td>
+<td style="text-align:right;">
+3884
+</td>
+<td style="text-align:right;">
+1.220
+</td>
+<td style="text-align:right;">
+1.733
+</td>
+<td style="text-align:right;">
+43.14
+</td>
+<td style="text-align:right;">
+7.404
+</td>
+<td style="text-align:right;">
+0.0310
+</td>
+<td style="text-align:right;">
+0.0110
+</td>
+<td style="text-align:right;">
+7.300
+</td>
+<td style="text-align:right;">
+13.391
+</td>
+<td style="text-align:right;">
+6.313
+</td>
+<td style="text-align:right;">
+7.197
+</td>
+<td style="text-align:right;">
+0.1628
+</td>
+<td style="text-align:right;">
+0.0775
+</td>
+<td style="text-align:right;">
+0.6259
+</td>
+<td style="text-align:right;">
+0.1277
+</td>
+<td style="text-align:right;">
+-0.3473
+</td>
+<td style="text-align:right;">
+37.86
+</td>
+<td style="text-align:right;">
+206.3
+</td>
+<td style="text-align:right;">
+33.08
+</td>
+<td style="text-align:right;">
+116.89
+</td>
+<td style="text-align:right;">
+101.09
+</td>
+<td style="text-align:right;">
+0.5892
+</td>
+<td style="text-align:right;">
+2.827
+</td>
+<td style="text-align:right;">
+2.546
+</td>
+<td style="text-align:right;">
+0.8817
+</td>
+<td style="text-align:right;">
+0.9999
+</td>
+<td style="text-align:right;">
+0.6044
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+5545
+</td>
+<td style="text-align:right;">
+28870
+</td>
+<td style="text-align:right;">
+8042
+</td>
+<td style="text-align:right;">
+8843
+</td>
+<td style="text-align:right;">
+13.82
+</td>
+<td style="text-align:right;">
+30.006
+</td>
+<td style="text-align:right;">
+24.750
+</td>
+<td style="text-align:right;">
+13.39
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Test
+</td>
+<td style="text-align:left;">
+PS
+</td>
+<td style="text-align:right;">
+2.888
+</td>
+<td style="text-align:right;">
+285
+</td>
+<td style="text-align:right;">
+24.28
+</td>
+<td style="text-align:right;">
+112.415
+</td>
+<td style="text-align:right;">
+20.474
+</td>
+<td style="text-align:right;">
+40.577
+</td>
+<td style="text-align:right;">
+1.109
+</td>
+<td style="text-align:right;">
+0.9568
+</td>
+<td style="text-align:right;">
+31.58
+</td>
+<td style="text-align:right;">
+21.71
+</td>
+<td style="text-align:right;">
+25.032
+</td>
+<td style="text-align:right;">
+5.658
+</td>
+<td style="text-align:right;">
+5.286
+</td>
+<td style="text-align:right;">
+5.236
+</td>
+<td style="text-align:right;">
+19.05
+</td>
+<td style="text-align:right;">
+2.741
+</td>
+<td style="text-align:right;">
+607.5
+</td>
+<td style="text-align:right;">
+221.6
+</td>
+<td style="text-align:right;">
+1140.4
+</td>
+<td style="text-align:right;">
+3621
+</td>
+<td style="text-align:right;">
+1.491
+</td>
+<td style="text-align:right;">
+1.385
+</td>
+<td style="text-align:right;">
+34.75
+</td>
+<td style="text-align:right;">
+8.484
+</td>
+<td style="text-align:right;">
+0.0228
+</td>
+<td style="text-align:right;">
+0.0797
+</td>
+<td style="text-align:right;">
+15.855
+</td>
+<td style="text-align:right;">
+3.539
+</td>
+<td style="text-align:right;">
+6.778
+</td>
+<td style="text-align:right;">
+5.502
+</td>
+<td style="text-align:right;">
+0.1274
+</td>
+<td style="text-align:right;">
+0.2785
+</td>
+<td style="text-align:right;">
+0.0421
+</td>
+<td style="text-align:right;">
+0.9523
+</td>
+<td style="text-align:right;">
+-0.1954
+</td>
+<td style="text-align:right;">
+35.99
+</td>
+<td style="text-align:right;">
+204.9
+</td>
+<td style="text-align:right;">
+27.03
+</td>
+<td style="text-align:right;">
+110.97
+</td>
+<td style="text-align:right;">
+86.47
+</td>
+<td style="text-align:right;">
+0.6001
+</td>
+<td style="text-align:right;">
+2.727
+</td>
+<td style="text-align:right;">
+2.018
+</td>
+<td style="text-align:right;">
+0.5170
+</td>
+<td style="text-align:right;">
+1.1768
+</td>
+<td style="text-align:right;">
+0.9258
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+6603
+</td>
+<td style="text-align:right;">
+30306
+</td>
+<td style="text-align:right;">
+5569
+</td>
+<td style="text-align:right;">
+11037
+</td>
+<td style="text-align:right;">
+15.41
+</td>
+<td style="text-align:right;">
+20.504
+</td>
+<td style="text-align:right;">
+45.450
+</td>
+<td style="text-align:right;">
+13.20
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Test
+</td>
+<td style="text-align:left;">
+WS
+</td>
+<td style="text-align:right;">
+40.748
+</td>
+<td style="text-align:right;">
+172
+</td>
+<td style="text-align:right;">
+325.93
+</td>
+<td style="text-align:right;">
+653.606
+</td>
+<td style="text-align:right;">
+128.691
+</td>
+<td style="text-align:right;">
+346.854
+</td>
+<td style="text-align:right;">
+1.006
+</td>
+<td style="text-align:right;">
+0.9926
+</td>
+<td style="text-align:right;">
+92.56
+</td>
+<td style="text-align:right;">
+61.93
+</td>
+<td style="text-align:right;">
+145.709
+</td>
+<td style="text-align:right;">
+6.998
+</td>
+<td style="text-align:right;">
+6.806
+</td>
+<td style="text-align:right;">
+7.119
+</td>
+<td style="text-align:right;">
+14.84
+</td>
+<td style="text-align:right;">
+1.040
+</td>
+<td style="text-align:right;">
+176.8
+</td>
+<td style="text-align:right;">
+170.0
+</td>
+<td style="text-align:right;">
+691.8
+</td>
+<td style="text-align:right;">
+1711
+</td>
+<td style="text-align:right;">
+1.310
+</td>
+<td style="text-align:right;">
+1.362
+</td>
+<td style="text-align:right;">
+12.38
+</td>
+<td style="text-align:right;">
+12.384
+</td>
+<td style="text-align:right;">
+0.0089
+</td>
+<td style="text-align:right;">
+0.0092
+</td>
+<td style="text-align:right;">
+8.248
+</td>
+<td style="text-align:right;">
+9.867
+</td>
+<td style="text-align:right;">
+7.016
+</td>
+<td style="text-align:right;">
+6.967
+</td>
+<td style="text-align:right;">
+0.0199
+</td>
+<td style="text-align:right;">
+0.0199
+</td>
+<td style="text-align:right;">
+-0.1968
+</td>
+<td style="text-align:right;">
+-0.8608
+</td>
+<td style="text-align:right;">
+-0.4051
+</td>
+<td style="text-align:right;">
+16.20
+</td>
+<td style="text-align:right;">
+232.0
+</td>
+<td style="text-align:right;">
+15.93
+</td>
+<td style="text-align:right;">
+95.97
+</td>
+<td style="text-align:right;">
+49.54
+</td>
+<td style="text-align:right;">
+0.6869
+</td>
+<td style="text-align:right;">
+1.043
+</td>
+<td style="text-align:right;">
+1.086
+</td>
+<td style="text-align:right;">
+-0.7026
+</td>
+<td style="text-align:right;">
+0.1532
+</td>
+<td style="text-align:right;">
+0.6512
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+53779
+</td>
+<td style="text-align:right;">
+107681
+</td>
+<td style="text-align:right;">
+21234
+</td>
+<td style="text-align:right;">
+57231
+</td>
+<td style="text-align:right;">
+115.00
+</td>
+<td style="text-align:right;">
+70.918
+</td>
+<td style="text-align:right;">
+184.693
+</td>
+<td style="text-align:right;">
+15.54
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>We will, of course, split the data.</p>
+<pre class="r"><code>set.seed(123)
+split &lt;- initial_split(cells %&gt;% select(-case), strata = class)
+train &lt;- training(split)
+test  &lt;- testing(split)</code></pre>
+</div>
+<div id="what-are-tree-based-models" class="section level2">
+<h2>What are Tree-Based Models?</h2>
+<p>Tree based models are a family of related models that mostly fit into a strict hierarchy. They grow out of one another, as it were. At the root is the basic <strong>decision tree</strong>. A decision tree makes predictions by making a sequence of decisions based on predictor variables about how to split the data. Each decision results in a binary split that improves the ‘purity’ of training samples in the resulting groups. This is a very interpretable model that doesn’t always generalize particularly well. That is, decision trees’ fatal flaw is that they are very prone to overfitting.</p>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-4"></span>
+<img src="tree_shape.png" alt="The basic shape of a decision tree." width="80%" />
 <p class="caption">
-Figure 1: A giant rain tree. Image: Wikipedia
+Figure 1: The basic shape of a decision tree.
 </p>
 </div>
-<p>The parameters that can be tuned for decision trees varies by the toolset or algorithm being used and the optional features implemented. Whether or not they can be tuned by specific tools, the following parameters are part of any decision tree model.<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a></p>
-<div id="purity-criterion" class="section level3">
-<h3>Purity Criterion</h3>
-<p>This determines whether ‘Entropy’ or the ‘Gini Index’ is used to evaluate node purity and what constitutes the best split. These two <a href="https://quantdare.com/decision-trees-gini-vs-entropy/">metrics are very similar</a> and the distinction usually isn’t important for tuning. The main practical difference is that Gini is less computationally expensive.</p>
-<p>We will ignore this for now. The linked post does a good job of examining the difference if the reader is interested.</p>
+<p>The next level is <strong>bagging</strong>, which uses a series of subsets of the training data to train a bunch of trees and averages (or otherwise combines) their decisions. This looks a lot like k-fold cross validation or bootstrapping, depending on the size of the samples and whether replacement is allowed. This helps a lot, but there is still room for improvement.</p>
+<p><strong>Random forest</strong> improves on bagging by introducing some chaos into the growth of trees to reduce overfitting even further. This chaos takes the form of limiting the predictors available at each decision point of each tree to a random subset of the predictors. This allows for more variation in the shape of individual trees, reducing the accuracy of individual trees but improving the accuracy of the ensemble as a whole. Random forest works very well for many things, even with default parameters.</p>
+<p>Beyond random forest we get into ensembles that are essentially “less-random forests” or “smart forests”. Two common models in this category are <strong>Gradient Boosted Models</strong> (GBM, GBClassifer, GBRegressor) and <strong>Bayesian Additive Regression Trees</strong> (BART). The main feature of these ‘smart forests’ is that each tree or group of trees is not grown completely at random, but rather is influenced by the residual variance in the predictions of the existing trees. The strength of the influence of prior trees is controlled by a learning rate parameter. These models are more powerful than random forest, but also more sensitive to proper tuning.</p>
 </div>
-<div id="tree-size-maximum-depth-maximum-leaf-nodes" class="section level3">
-<h3>Tree Size: Maximum Depth &amp; Maximum Leaf Nodes</h3>
+</div>
+<div id="trees" class="section level1">
+<h1>Trees</h1>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-5"></span>
+<img src="tree.jpg" alt="A giant rain tree. Image: Wikipedia" width="80%" />
+<p class="caption">
+Figure 2: A giant rain tree. Image: Wikipedia
+</p>
+</div>
+<p>The parameters that can be tuned for decision trees varies by the toolset or algorithm being used and the optional features implemented. Whether or not they can be tuned by specific tools, the following parameters are part of any decision tree model.<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a> The ensemble models that extend decision trees necessarily use these same parameters for the trees they comprise, in addition to parameters that affect their unique functionality beyond the underlying trees.</p>
+<p>Before we get into the parameters, we should specify our model. While selecting our model spec, we have to set the hyperparameters we would like to tune with the <code>tune</code> package.</p>
+<pre class="r"><code>tune_spec &lt;- 
+  decision_tree(
+    cost_complexity = tune(),
+    min_n = tune(),
+    tree_depth = tune()
+  ) %&gt;% 
+  set_engine(&quot;rpart&quot;) %&gt;% 
+  set_mode(&quot;classification&quot;)
+
+tune_spec</code></pre>
+<pre><code>## Decision Tree Model Specification (classification)
+## 
+## Main Arguments:
+##   cost_complexity = tune()
+##   tree_depth = tune()
+##   min_n = tune()
+## 
+## Computational engine: rpart</code></pre>
+<p>Tidymodels’ <code>decision_tree()</code> spec only gives us three parameters to tune, but that’s fine, as we’ll see. Additionally, it is possible to use other parameters depending on the individual engine selected.<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a> These can also be tuned using <code>tune()</code>. I leave this as an exercise for the reader.<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a></p>
+<p>It is also a good idea to get a baseline to start with. Let’s see what kind of tree we get with the default arguments.</p>
+<pre class="r"><code># Set Spec
+def_tree_spec &lt;- 
+  decision_tree(
+  ) %&gt;% 
+  set_engine(&quot;rpart&quot;) %&gt;% 
+  set_mode(&quot;classification&quot;)
+
+# Fit Model
+set.seed(485)
+def_tree_fit &lt;- def_tree_spec %&gt;%
+  fit(class ~ ., data = train)
+
+# Get accuracy
+def_tree_acc &lt;- augment(def_tree_fit, new_data = train) %&gt;%
+  accuracy(truth = class, estimate = .pred_class)
+
+# Visualize
+def_tree_fit %&gt;%
+  extract_fit_engine() %&gt;%
+  rpart.plot(main=&quot;Default Tree&quot;, tweak=1.3, roundint=F)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-7-1.png" width="672" /></p>
+<pre class="r"><code>def_tree_acc</code></pre>
+<pre><code>## # A tibble: 1 x 3
+##   .metric  .estimator .estimate
+##   &lt;chr&gt;    &lt;chr&gt;          &lt;dbl&gt;
+## 1 accuracy binary         0.836</code></pre>
+<p>Our default arguments lead to a tree with a depth of 4, 6 leaf nodes, and an accuracy of .8355.</p>
+<div id="purity-criterion" class="section level2">
+<h2>Purity Criterion</h2>
+<p>This determines whether ‘Entropy’ or the ‘Gini Index’ is used to evaluate node purity and what constitutes the best split. These two <a href="https://quantdare.com/decision-trees-gini-vs-entropy/">metrics are very similar</a> and the distinction usually isn’t important for tuning. The main practical difference is that Gini is less computationally expensive. This seems like the most probable reason Tidymodels doesn’t give us the option to set this parameter. As we would expect, the RPart engine defaults to the Gini index.</p>
+</div>
+<div id="tree-size-maximum-depth-maximum-leaf-nodes" class="section level2">
+<h2>Tree Size: Maximum Depth &amp; Maximum Leaf Nodes</h2>
 <p>These parameters both serve to limit the overall size and therefore complexity of trees to reduce overfitting.</p>
 <p>Maximum Depth limits the height of the tree, indirectly limiting the leaf nodes to <span class="math inline">\(2^k\)</span> for a tree of height <span class="math inline">\(k\)</span>. This might result in some unavailable decisions at another layer of depth being unavailable while less good decisions are allowed at a higher level. On the other hand, this prevents the formation of trees that continuously subdivide the same node.</p>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-9"></span>
+<img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-9-1.png" alt="Trees limited to max depth 1, 2, &amp; 3" width="33%" /><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-9-2.png" alt="Trees limited to max depth 1, 2, &amp; 3" width="33%" /><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-9-3.png" alt="Trees limited to max depth 1, 2, &amp; 3" width="33%" />
+<p class="caption">
+Figure 3: Trees limited to max depth 1, 2, &amp; 3
+</p>
+</div>
 <p>Maximum leaf nodes, on the other hand, directly limit the number of possible leaf nodes. This allows for the growth of less balanced trees in pursuit of the best decisions available at each step. It also allows for a finer level of control on tree size, especially for larger trees where each level doubles the number of possible decisions.</p>
-<p>These two parameters can work together or one can render the other moot, but they never work against each other. For example, a max depth of 4 and a max leaf nodes of 25 is the same as just using the max depth of 4. On the other hand, a max depth of 5 and a max leaf nodes of 10 can be seen as limiting the lankiness of a max leaf nodes 10 tree or limiting the fullness of the max depth 5 tree.</p>
+<p>These two parameters can work together or one can render the other moot, but they never work against each other. For example, a max depth of 4 and a max leaf nodes of 25 is the same as just using the max depth of 4. On the other hand, a max depth of 3 and a max leaf nodes of 5 can be seen as limiting the lankiness (not a technical term) of a max leaf nodes 5 tree or limiting the fullness of the max depth 3 tree.</p>
 <p>Most of the time, tuning one of these is plenty. However, if they are both tuned, they should be tuned in tandem to make sure both values are useful.</p>
+<div id="tuning-max-depth-with-tidymodels" class="section level4">
+<h4>Tuning Max Depth with Tidymodels</h4>
+<p>Tidymodels allows us to tune max tree depth but not maximum leaf nodes.</p>
+<p>To do this, we will use a method called <strong><a href="https://en.wikipedia.org/wiki/Hyperparameter_optimization#Grid_search">grid search</a></strong> which is a sort of brute force method. Grid creates a regular grid of values in n-dimensional space where n is the number of parameters to be tuned. It then trains models with parameter values for each point in the grid and compares the performance. Grid search can be slow and there are better, more complex methods, but they are beyond the scope of this post.</p>
+<p>We will use the <code>grid_regular()</code> function from the <a href="https://dials.tidymodels.org/">Dials package</a> to do a <strong>grid search</strong>. Later, we’ll do this with a 3 dimensional grid to tune all of our chosen parameters at the same time, but to start, let’s try tuning them individually.</p>
+<pre class="r"><code>depth_grid &lt;- grid_regular(tree_depth(), levels = 8)
+depth_grid</code></pre>
+<pre><code>## # A tibble: 8 x 1
+##   tree_depth
+##        &lt;int&gt;
+## 1          1
+## 2          3
+## 3          5
+## 4          7
+## 5          9
+## 6         11
+## 7         13
+## 8         15</code></pre>
+<p>Different functions would allow us more fine grain control over the grid, but this version is fine. Tree depth defaults to a range from 1-15 and is divided into the specified number of levels. Selecting 8 gives us all the odd numbers of levels.</p>
+<p>In order to use grid search, we’ll have to create cross validation folds to compare performace between the different models.</p>
+<pre class="r"><code>set.seed(485)
+cv_folds &lt;- vfold_cv(train)</code></pre>
+<p>We then create a workflow to perform the tuning.</p>
+<pre class="r"><code>set.seed(485)
+
+depth_spec &lt;- 
+  decision_tree(
+    tree_depth = tune()
+  ) %&gt;% 
+  set_engine(&quot;rpart&quot;) %&gt;% 
+  set_mode(&quot;classification&quot;)
+
+depth_wf &lt;- workflow() %&gt;%
+  add_model(depth_spec) %&gt;%
+  add_formula(class ~ .)
+
+depth_res &lt;- 
+  depth_wf %&gt;% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = depth_grid
+    )</code></pre>
+<p>We could look at the cross fold validation results directly, but with this set, interpretation is too difficult to be worth printing the results directly. Metrics and visualizations will paint a much clearer picture.</p>
+<pre class="r"><code>depth_res %&gt;% 
+  collect_metrics() %&gt;%
+  select(-.config) %&gt;%
+  kable() %&gt;%
+  kable_styling(bootstrap_options = c(&quot;striped&quot;, &quot;hover&quot;, &quot;condensed&quot;)) %&gt;%
+  scroll_box(height=&quot;300px&quot;)</code></pre>
+<div style="border: 1px solid #ddd; padding: 0px; overflow-y: scroll; height:300px; ">
+<table class="table table-striped table-hover table-condensed" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:right;position: sticky; top:0; background-color: #FFFFFF;">
+tree_depth
+</th>
+<th style="text-align:left;position: sticky; top:0; background-color: #FFFFFF;">
+.metric
+</th>
+<th style="text-align:left;position: sticky; top:0; background-color: #FFFFFF;">
+.estimator
+</th>
+<th style="text-align:right;position: sticky; top:0; background-color: #FFFFFF;">
+mean
+</th>
+<th style="text-align:right;position: sticky; top:0; background-color: #FFFFFF;">
+n
+</th>
+<th style="text-align:right;position: sticky; top:0; background-color: #FFFFFF;">
+std_err
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.7338
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0070
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.7743
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0070
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8032
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0087
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8409
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0103
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8012
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0066
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8425
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0100
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.7965
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0075
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8387
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0092
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8005
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0075
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8401
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0090
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+11
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8005
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0075
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+11
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8401
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0090
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+13
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8005
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0075
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+13
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8401
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0090
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:left;">
+accuracy
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8005
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0075
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:left;">
+roc_auc
+</td>
+<td style="text-align:left;">
+binary
+</td>
+<td style="text-align:right;">
+0.8401
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+0.0090
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A close look at the metrics reveals that the accuracy peaks at a depth of 3 and plateaus. This is not surprising as our default tree only had a depth of 4. We can see the same by plotting the accuracy and roc accuracy against tree depth.</p>
+<pre class="r"><code>depth_res %&gt;%
+  collect_metrics() %&gt;%
+  ggplot(aes(tree_depth, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color=&quot;#C7B27C&quot;) +
+  geom_point(size = 5, color=&quot;#97b063&quot;, shape=17) +
+  facet_wrap(~ .metric, scales = &quot;free&quot;, nrow = 2) +
+  scale_color_viridis_d(option = &quot;plasma&quot;, begin = .9, end = 0) + 
+  labs(
+    title=&quot;Accuracy of Different Tree Depths&quot;
+  )</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-14-1.png" width="672" /></p>
+<p>We can use <code>show_best()</code> to get the top five (or however many we want) candidates, and <code>select_best()</code> to pull the best set or hyperparameters for our final model. This will be more useful when we have more dimensions in our grid search, so we’ll come back to them.</p>
+<p>When we do combine these later, it will take far too long to run 8 splits in each dimension. When the time comes, we’ll manually force our grid along the depth axis to search each depth from two to five. This will help with speed by limiting the number of depths to try, but will also give us a finer granularity than we got here with only checking odds depths.</p>
 </div>
 </div>
-<div id="random-forest" class="section level2">
-<h2>Random Forest</h2>
+<div id="minimum-samples-per-leaf-split" class="section level2">
+<h2>Minimum Samples per Leaf &amp; Split</h2>
+<p>Another way to limit tree size indirectly is to constrain the minimum number of samples that can end up in a leaf or the minimum number of samples that a node can have if it is to be split. Rather than directly constraining the final size of the tree, they constrain the splitting process using the size before and after the split. Like constraining tree size directly, the idea here is to reduce overfitting by not allowing branches to become ultra fine to the point of splitting down to just one or two samples.</p>
+<p>These two parameters have an obvious interaction in that they almost do the same thing. Tuning only minimum samples for splits allows for splits that shave off as few as one sample from the parent node. Tuning only minimum samples for leaves allows splits as small as double this size. As was the case above, these don’t directly contradict one another, but if they are poorly tuned they can preempt one another. Typically we would start by tuning one or the other of these, and if we decide to tune them both, they should be tuned in tandem to limit one another’s edge cases. A minimum split size of 10 might go well with a minimum leaf size of 3, for example, but a minimum split size of 4 and a minimum leaf size of 2 would be redundant.</p>
+<div id="tuning-minimum-samples-per-split-with-tidymodels" class="section level4">
+<h4>Tuning Minimum Samples per Split with Tidymodels</h4>
+<p>Tidymodels allows us to tune minimum samples per split with the <code>min_n</code> parameter. I’ll hide most of the repeat code going forward to keep things trim. At each tuning step until the end when we do a 3d grid, I’ll force the previously tuned parameters to their optimal values according to their individual grid search. In practice, we would do all of our grid search at once, but we want to look at each hyperparameter individually as we explore.</p>
+<pre><code>## Decision Tree Model Specification (classification)
+## 
+## Main Arguments:
+##   min_n = tune()
+## 
+## Computational engine: rpart</code></pre>
+<pre><code>## # A tibble: 7 x 1
+##   min_n
+##   &lt;int&gt;
+## 1     2
+## 2     8
+## 3    14
+## 4    21
+## 5    27
+## 6    33
+## 7    40</code></pre>
+<p>I don’t really care for the default result here. Let’s change this to be a sequence of doubling minimum split sizes instead.</p>
+<pre class="r"><code>split_grid$min_n = c(2,4,8,16,32,64,128)
+split_grid</code></pre>
+<pre><code>## # A tibble: 7 x 1
+##   min_n
+##   &lt;dbl&gt;
+## 1     2
+## 2     4
+## 3     8
+## 4    16
+## 5    32
+## 6    64
+## 7   128</code></pre>
+<pre class="r"><code>set.seed(485)
+
+split_wf &lt;- workflow() %&gt;%
+  add_model(split_spec) %&gt;%
+  add_formula(class ~ .)
+
+split_res &lt;- 
+  split_wf %&gt;% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = split_grid
+    )
+
+split_res %&gt;%
+  collect_metrics() %&gt;%
+  ggplot(aes(min_n, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color=&quot;#C7B27C&quot;) +
+  geom_point(size = 5, color=&quot;#97b063&quot;, shape=17) +
+  facet_wrap(~ .metric, scales = &quot;free&quot;, nrow = 2) +
+  scale_color_viridis_d(option = &quot;plasma&quot;, begin = .9, end = 0) + 
+  scale_x_log10(breaks=c(2,4,8,16,32,64,128)) + 
+  labs(
+    title=&quot;Accuracy of Different Minimum Split Sizes&quot;,
+    caption=&quot;Max depth = 3&quot;
+  )</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-17-1.png" width="672" /></p>
+<p>Don’t be fooled by the drop off in the plot, this is a rock solid accuracy, meaning our tuning of <code>min_n</code> is doing almost nothing. My guess is that the depth of 3 with our training sample size of 1514 means we’re already effectively constraining minimum sample size. Let’s try again without constraining the tree size.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-18-1.png" width="672" /></p>
+<p>That’s more like it. We see what looks like a peak around 64 without much action prior to 16. Lets narrow our grid and go back to a linear scale to see if we can pin down something better than 64.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-19-1.png" width="672" /></p>
+<p>I’m tempted to go with a finer grain, but way these bounce around now makes me think we’d be tuning to extract signal from noise. It looks like things plateau around 70, so with our final grid later we’ll try something like 60, 70, 80.</p>
+<p>We can also take a look at how the minimum split size affects the tree growth. We may or may not get any visible results here.</p>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-20"></span>
+<img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-20-1.png" alt="Trees limited to min split size 70 &amp; 100" width="50%" /><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-20-2.png" alt="Trees limited to min split size 70 &amp; 100" width="50%" />
+<p class="caption">
+Figure 4: Trees limited to min split size 70 &amp; 100
+</p>
+</div>
+<p>We see no change from the default tree when limiting the split size to 40 or 70, which is a little surprising for 70 at least, given our results above. In the context of our sample size, with 10-fold cross validation (the default for RPart), we should have training sets of effectively 1362.6 rows. Our smallest default split was 7%, or about 96. So we aren’t reliably affecting the default until we get up to around 100.</p>
+<p>It is good to know that we get very similar accuracy with a decision that splits 31% of the training data into subgroups not only changing its threshold, but using a different predictor. This seems like a sign that our decision tree is probably not especially overfit.</p>
+</div>
+</div>
+<div id="minimum-impurity-decrease" class="section level2">
+<h2>Minimum Impurity Decrease</h2>
+<p>Some models allow for tuning of the minimum allowable decrease in impurity, that is, the minimum improvement in Entropy or the Gini index resulting from a potential split. This compares the parent node’s impurity against the impurities of the left and right children, all weighted by the number of observations in each. This is a way of limiting tree growth, similar to the previous parameters, but instead of limiting tree size directly, it adjusts the criteria for whether or not to split nodes directly.</p>
+<p>We can’t directly tune this with Tidymodels, but it’s similar enough to minimum split size and cost complexity that we shouldn’t need to anyhow. As we already saw, tuning minimum split size and max depth together alread creats a bit of overlap.</p>
+</div>
+<div id="cost-complexity-pruning-parameter" class="section level2">
+<h2>Cost Complexity Pruning Parameter</h2>
+<p>Most models allow for tuning of the cost complexity parameter used in pruning. Conceptually, this is similar to the min impurity decrease in reverse.</p>
+<p>Where minimum impurity decrease operates to limit initial tree, the cost complexity operates on the pruning process, which happens after a tree has been grown. Where minimum impurity decrease only allows decisions that improve the purity by a specified amount, the cost complexity parameter (<span class="math inline">\(\alpha\)</span> or <span class="math inline">\(C\)</span> depending on the package) sets a threshold of increasing impurity at which to stop the pruning process.</p>
+<div id="tuning-cost-complexity-with-tidymodels" class="section level4">
+<h4>Tuning Cost Complexity with Tidymodels</h4>
+<p>Because cost complexity is a pruning method, we want the tree to be a little overgrown to start, so we’ll try this first without setting any of the other parameters.</p>
+<pre><code>## Decision Tree Model Specification (classification)
+## 
+## Main Arguments:
+##   cost_complexity = tune()
+## 
+## Computational engine: rpart</code></pre>
+<pre><code>## # A tibble: 4 x 1
+##   cost_complexity
+##             &lt;dbl&gt;
+## 1    0.0000000001
+## 2    0.0000001   
+## 3    0.0001      
+## 4    0.1</code></pre>
+<p>The default range for cost complexity is <span class="math inline">\(1.0\times10^-1\)</span> to <span class="math inline">\(1.0\times10^-10\)</span>. Feeding <code>grid_regular</code> a level count of 4 gives us these nice, round numbered levels.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-23-1.png" width="672" /></p>
+<p>Again, we don’t have a very granular grid and a large swath of it isn’t useful. Let’s tighten up the spread to between .0001 and .1.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-25-1.png" width="672" /></p>
+<p>That’s better. We’ll use this same grid range in our combined grid search.</p>
+<p>Given how long these are taking, we’ll go ahead and trim each dimension of our grid down to 3 values that we’ll set by hand.</p>
+<p>Again, lets see if we can tell what impact our pruning parameter is having. Just for good measure, I want to look at a very high value for alpha as well, like .3.</p>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-26"></span>
+<img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-26-1.png" alt="Trees Pruned Using Cost Complexity alpha values of .001, .01, .1, &amp; .3" width="50%" /><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-26-2.png" alt="Trees Pruned Using Cost Complexity alpha values of .001, .01, .1, &amp; .3" width="50%" /><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-26-3.png" alt="Trees Pruned Using Cost Complexity alpha values of .001, .01, .1, &amp; .3" width="50%" /><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-26-4.png" alt="Trees Pruned Using Cost Complexity alpha values of .001, .01, .1, &amp; .3" width="50%" />
+<p class="caption">
+Figure 5: Trees Pruned Using Cost Complexity alpha values of .001, .01, .1, &amp; .3
+</p>
+</div>
+<p>Interesting. This first plot is closer to what I’d have expected for the result of using the default arguments. It seems RPart engages in pruning by default, apparently with a default alpha of .01.<a href="#fn5" class="footnote-ref" id="fnref5"><sup>5</sup></a></p>
+<p>That probably explains why some of our other tuning seems less impactful than we might expect. And why our default tree classifying a thousand and a half samples only ends up with 6 leaves.<a href="#fn6" class="footnote-ref" id="fnref6"><sup>6</sup></a></p>
+</div>
+<div id="combined-grid-search" class="section level4">
+<h4>Combined Grid Search</h4>
+<p>We won’t try to visualize the results of this search because the higher dimensionality makes that tricky. It could be done, but we have an idea of how the different parameters change accuracy already, so we’ll just run the combined search and look at the top few candidates. Doing two parameters does work nicely for visualizations though.</p>
+<pre><code>## Decision Tree Model Specification (classification)
+## 
+## Main Arguments:
+##   cost_complexity = tune()
+##   tree_depth = tune()
+##   min_n = tune()
+## 
+## Computational engine: rpart</code></pre>
+<pre><code>## # A tibble: 27 x 3
+##    cost_complexity min_n tree_depth
+##              &lt;dbl&gt; &lt;int&gt;      &lt;int&gt;
+##  1    0.0000000001     2          1
+##  2    0.00000316       2          1
+##  3    0.1              2          1
+##  4    0.0000000001    21          1
+##  5    0.00000316      21          1
+##  6    0.1             21          1
+##  7    0.0000000001    40          1
+##  8    0.00000316      40          1
+##  9    0.1             40          1
+## 10    0.0000000001     2          8
+## # ... with 17 more rows</code></pre>
+<p>I know there must be a better way to do this, but I can’t seem to find it, so here’s the hacky way I’m forcing <code>grid_regular()</code> to use my custom ranges.</p>
+<pre class="r"><code>tune_grid$min_n &lt;- rep(  c( rep(60,3), rep(70,3), rep(80,3)), 3)
+
+tune_grid$tree_depth &lt;- c(rep(2,9),rep(3,9),rep(4,9))
+
+tune_grid$cost_complexity &lt;- rep(c(.001,.01,.1),9)</code></pre>
+<p>From the 27 parameter candidates, these are the 5 with the best accuracy:</p>
+<pre class="r"><code>tune_res %&gt;%
+  show_best(&quot;accuracy&quot;)</code></pre>
+<pre><code>## # A tibble: 5 x 9
+##   cost_complexity tree_depth min_n .metric  .estimator  mean     n std_err
+##             &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt;    &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt;
+## 1           0.001          4    80 accuracy binary     0.807    10 0.00846
+## 2           0.01           4    70 accuracy binary     0.806    10 0.00801
+## 3           0.01           4    80 accuracy binary     0.805    10 0.00812
+## 4           0.001          4    70 accuracy binary     0.804    10 0.00820
+## 5           0.001          3    80 accuracy binary     0.804    10 0.00932
+## # ... with 1 more variable: .config &lt;chr&gt;</code></pre>
+<p>From the 27 parameter candidates, these are the 5 with the area under the ROC curve:</p>
+<pre class="r"><code>tune_res %&gt;%
+  show_best(&quot;roc_auc&quot;)</code></pre>
+<pre><code>## # A tibble: 5 x 9
+##   cost_complexity tree_depth min_n .metric .estimator  mean     n std_err
+##             &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt;   &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt;
+## 1           0.001          4    60 roc_auc binary     0.852    10 0.00641
+## 2           0.001          4    70 roc_auc binary     0.851    10 0.00681
+## 3           0.001          4    80 roc_auc binary     0.850    10 0.00679
+## 4           0.001          3    60 roc_auc binary     0.849    10 0.00790
+## 5           0.001          3    70 roc_auc binary     0.849    10 0.00790
+## # ... with 1 more variable: .config &lt;chr&gt;</code></pre>
+<p>The difference between any of these five options for either metric is extremely small, so we’ll just go forward with the top result for accuracy.</p>
+<pre class="r"><code>best_tree &lt;- tune_res %&gt;%
+  select_best(&quot;accuracy&quot;)
+
+best_tree</code></pre>
+<pre><code>## # A tibble: 1 x 4
+##   cost_complexity tree_depth min_n .config              
+##             &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt;                
+## 1           0.001          4    80 Preprocessor1_Model25</code></pre>
+</div>
+</div>
+<div id="number-of-predictors" class="section level2">
+<h2>Number of Predictors</h2>
+<p>With sklearn, it is possible to tune this value for individual trees, but it doesn’t really make sense to do so. None of the tidymodels engines allow this to be tuned for decision trees. This is the defining parameter of random forests so we’ll come back to it in the next section.</p>
+</div>
+</div>
+<div id="random-forest" class="section level1">
+<h1>Random Forest</h1>
 <p><img src="forest2.jpg" width="80%" style="display: block; margin: auto;" /></p>
 <p><a href="https://www.freepik.com/photos/haunted">Image by kjpargeter - www.freepik.com</a></p>
 </div>
-<div id="gradient-boosted-ensemble" class="section level2">
-<h2>Gradient Boosted Ensemble</h2>
-<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-3"></span>
+<div id="gradient-boosted-ensemble" class="section level1">
+<h1>Gradient Boosted Ensemble</h1>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-35"></span>
 <img src="smart-forest2.jpg" alt="Intelligent forest. " width="80%" />
 <p class="caption">
-Figure 2: Intelligent forest.
+Figure 6: Intelligent forest.
 </p>
 </div>
 <p><a href="https://thekidshouldseethis.com/post/the-wood-wide-web-how-trees-secretly-talk-to-and-share-with-each-other">Image: TKSST</a></p>
 </div>
+<div id="references" class="section level1">
+<h1>References</h1>
+<p>In addition to the linked resources throughout, the following resources</p>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<pre class="r"><code>sessioninfo::session_info()</code></pre>
+<pre><code>## - Session info ---------------------------------------------------------------
+##  setting  value
+##  version  R version 4.1.2 (2021-11-01)
+##  os       Windows 10 x64 (build 19043)
+##  system   x86_64, mingw32
+##  ui       RTerm
+##  language (EN)
+##  collate  English_United States.1252
+##  ctype    English_United States.1252
+##  tz       America/Los_Angeles
+##  date     2022-05-18
+##  pandoc   2.11.2 @ C:/Program Files/RStudio/bin/pandoc/ (via rmarkdown)
+## 
+## - Packages -------------------------------------------------------------------
+##  package      * version    date (UTC) lib source
+##  assertthat     0.2.1      2019-03-21 [1] CRAN (R 4.1.1)
+##  backports      1.4.1      2021-12-13 [1] CRAN (R 4.1.2)
+##  blogdown       1.9        2022-03-28 [1] CRAN (R 4.1.3)
+##  bookdown       0.26       2022-04-15 [1] CRAN (R 4.1.3)
+##  broom        * 0.8.0      2022-04-13 [1] CRAN (R 4.1.3)
+##  bslib          0.3.1      2021-10-06 [1] CRAN (R 4.1.1)
+##  cellranger     1.1.0      2016-07-27 [1] CRAN (R 4.1.1)
+##  class          7.3-19     2021-05-03 [2] CRAN (R 4.1.2)
+##  cli            3.3.0      2022-04-25 [1] CRAN (R 4.1.2)
+##  codetools      0.2-18     2020-11-04 [2] CRAN (R 4.1.2)
+##  colorspace     2.0-3      2022-02-21 [1] CRAN (R 4.1.3)
+##  crayon         1.5.1      2022-03-26 [1] CRAN (R 4.1.3)
+##  DBI            1.1.2      2021-12-20 [1] CRAN (R 4.1.3)
+##  dbplyr         2.1.1      2021-04-06 [1] CRAN (R 4.1.1)
+##  dials        * 0.1.1      2022-04-06 [1] CRAN (R 4.1.3)
+##  DiceDesign     1.9        2021-02-13 [1] CRAN (R 4.1.2)
+##  digest         0.6.29     2021-12-01 [1] CRAN (R 4.1.3)
+##  dplyr        * 1.0.9      2022-04-28 [1] CRAN (R 4.1.2)
+##  ellipsis       0.3.2      2021-04-29 [1] CRAN (R 4.1.1)
+##  evaluate       0.15       2022-02-18 [1] CRAN (R 4.1.3)
+##  extrafont      0.18       2022-04-12 [1] CRAN (R 4.1.3)
+##  extrafontdb    1.0        2012-06-11 [1] CRAN (R 4.1.1)
+##  fansi          1.0.3      2022-03-24 [1] CRAN (R 4.1.3)
+##  farver         2.1.0      2021-02-28 [1] CRAN (R 4.1.1)
+##  fastmap        1.1.0      2021-01-25 [1] CRAN (R 4.1.1)
+##  forcats      * 0.5.1      2021-01-27 [1] CRAN (R 4.1.1)
+##  foreach        1.5.2      2022-02-02 [1] CRAN (R 4.1.3)
+##  fs             1.5.2      2021-12-08 [1] CRAN (R 4.1.3)
+##  furrr          0.2.3      2021-06-25 [1] CRAN (R 4.1.2)
+##  future         1.25.0     2022-04-24 [1] CRAN (R 4.1.2)
+##  future.apply   1.9.0      2022-04-25 [1] CRAN (R 4.1.2)
+##  gdtools        0.2.4      2022-02-14 [1] CRAN (R 4.1.3)
+##  generics       0.1.2      2022-01-31 [1] CRAN (R 4.1.3)
+##  ggplot2      * 3.3.5      2021-06-25 [1] CRAN (R 4.1.2)
+##  globals        0.14.0     2020-11-22 [1] CRAN (R 4.1.1)
+##  glue           1.6.2      2022-02-24 [1] CRAN (R 4.1.3)
+##  gower          1.0.0      2022-02-03 [1] CRAN (R 4.1.2)
+##  GPfit          1.0-8      2019-02-08 [1] CRAN (R 4.1.2)
+##  gridExtra      2.3        2017-09-09 [1] CRAN (R 4.1.1)
+##  gtable         0.3.0      2019-03-25 [1] CRAN (R 4.1.1)
+##  hardhat        0.2.0      2022-01-24 [1] CRAN (R 4.1.2)
+##  haven          2.5.0      2022-04-15 [1] CRAN (R 4.1.3)
+##  highr          0.9        2021-04-16 [1] CRAN (R 4.1.1)
+##  hms            1.1.1      2021-09-26 [1] CRAN (R 4.1.1)
+##  hrbrthemes   * 0.8.0      2020-03-06 [1] CRAN (R 4.1.1)
+##  htmltools      0.5.2      2021-08-25 [1] CRAN (R 4.1.1)
+##  httr           1.4.2      2020-07-20 [1] CRAN (R 4.1.1)
+##  infer        * 1.0.0      2021-08-13 [1] CRAN (R 4.1.2)
+##  ipred          0.9-12     2021-09-15 [1] CRAN (R 4.1.1)
+##  iterators      1.0.14     2022-02-05 [1] CRAN (R 4.1.3)
+##  jquerylib      0.1.4      2021-04-26 [1] CRAN (R 4.1.1)
+##  jsonlite       1.8.0      2022-02-22 [1] CRAN (R 4.1.3)
+##  kableExtra   * 1.3.4      2021-02-20 [1] CRAN (R 4.1.1)
+##  knitr          1.39       2022-04-26 [1] CRAN (R 4.1.2)
+##  labeling       0.4.2      2020-10-20 [1] CRAN (R 4.1.1)
+##  lattice        0.20-45    2021-09-22 [2] CRAN (R 4.1.2)
+##  lava           1.6.10     2021-09-02 [1] CRAN (R 4.1.1)
+##  lhs            1.1.5      2022-03-22 [1] CRAN (R 4.1.3)
+##  lifecycle      1.0.1      2021-09-24 [1] CRAN (R 4.1.1)
+##  listenv        0.8.0      2019-12-05 [1] CRAN (R 4.1.1)
+##  lubridate      1.8.0      2021-10-07 [1] CRAN (R 4.1.1)
+##  magrittr       2.0.3      2022-03-30 [1] CRAN (R 4.1.3)
+##  MASS           7.3-54     2021-05-03 [2] CRAN (R 4.1.2)
+##  Matrix         1.3-4      2021-06-01 [2] CRAN (R 4.1.2)
+##  modeldata    * 0.1.1      2021-07-14 [1] CRAN (R 4.1.2)
+##  modelr         0.1.8      2020-05-19 [1] CRAN (R 4.1.1)
+##  munsell        0.5.0      2018-06-12 [1] CRAN (R 4.1.1)
+##  nnet           7.3-16     2021-05-03 [2] CRAN (R 4.1.2)
+##  parallelly     1.31.1     2022-04-22 [1] CRAN (R 4.1.3)
+##  parsnip      * 0.2.1      2022-03-17 [1] CRAN (R 4.1.3)
+##  pillar         1.7.0      2022-02-01 [1] CRAN (R 4.1.3)
+##  pkgconfig      2.0.3      2019-09-22 [1] CRAN (R 4.1.1)
+##  plyr           1.8.7      2022-03-24 [1] CRAN (R 4.1.3)
+##  pROC           1.18.0     2021-09-03 [1] CRAN (R 4.1.1)
+##  prodlim        2019.11.13 2019-11-17 [1] CRAN (R 4.1.1)
+##  purrr        * 0.3.4      2020-04-17 [1] CRAN (R 4.1.1)
+##  R6             2.5.1      2021-08-19 [1] CRAN (R 4.1.1)
+##  RColorBrewer * 1.1-3      2022-04-03 [1] CRAN (R 4.1.3)
+##  Rcpp           1.0.8.3    2022-03-17 [1] CRAN (R 4.1.3)
+##  readr        * 2.1.2      2022-01-30 [1] CRAN (R 4.1.2)
+##  readxl         1.4.0      2022-03-28 [1] CRAN (R 4.1.3)
+##  recipes      * 0.2.0      2022-02-18 [1] CRAN (R 4.1.3)
+##  reprex         2.0.1      2021-08-05 [1] CRAN (R 4.1.1)
+##  rlang          1.0.2      2022-03-04 [1] CRAN (R 4.1.3)
+##  rmarkdown      2.14       2022-04-25 [1] CRAN (R 4.1.2)
+##  rpart        * 4.1-15     2019-04-12 [2] CRAN (R 4.1.2)
+##  rpart.plot   * 3.1.0      2021-07-24 [1] CRAN (R 4.1.3)
+##  rsample      * 0.1.1      2021-11-08 [1] CRAN (R 4.1.2)
+##  rstudioapi     0.13       2020-11-12 [1] CRAN (R 4.1.1)
+##  Rttf2pt1       1.3.10     2022-02-07 [1] CRAN (R 4.1.2)
+##  rvest          1.0.2      2021-10-16 [1] CRAN (R 4.1.1)
+##  sass           0.4.1      2022-03-23 [1] CRAN (R 4.1.3)
+##  scales       * 1.2.0      2022-04-13 [1] CRAN (R 4.1.3)
+##  sessioninfo    1.2.2      2021-12-06 [1] CRAN (R 4.1.3)
+##  stringi        1.7.6      2021-11-29 [1] CRAN (R 4.1.2)
+##  stringr      * 1.4.0      2019-02-10 [1] CRAN (R 4.1.1)
+##  survival       3.2-13     2021-08-24 [2] CRAN (R 4.1.2)
+##  svglite        2.1.0      2022-02-03 [1] CRAN (R 4.1.3)
+##  systemfonts    1.0.4      2022-02-11 [1] CRAN (R 4.1.3)
+##  tibble       * 3.1.6      2021-11-07 [1] CRAN (R 4.1.2)
+##  tidymodels   * 0.2.0      2022-03-19 [1] CRAN (R 4.1.3)
+##  tidyr        * 1.2.0      2022-02-01 [1] CRAN (R 4.1.3)
+##  tidyselect     1.1.2      2022-02-21 [1] CRAN (R 4.1.3)
+##  tidyverse    * 1.3.1      2021-04-15 [1] CRAN (R 4.1.3)
+##  timeDate       3043.102   2018-02-21 [1] CRAN (R 4.1.1)
+##  tune         * 0.2.0      2022-03-19 [1] CRAN (R 4.1.3)
+##  tzdb           0.3.0      2022-03-28 [1] CRAN (R 4.1.3)
+##  utf8           1.2.2      2021-07-24 [1] CRAN (R 4.1.1)
+##  vctrs          0.4.1      2022-04-13 [1] CRAN (R 4.1.3)
+##  vip          * 0.3.2      2020-12-17 [1] CRAN (R 4.1.3)
+##  viridis      * 0.6.2      2021-10-13 [1] CRAN (R 4.1.1)
+##  viridisLite  * 0.4.0      2021-04-13 [1] CRAN (R 4.1.1)
+##  webshot        0.5.3      2022-04-14 [1] CRAN (R 4.1.3)
+##  withr          2.5.0      2022-03-03 [1] CRAN (R 4.1.3)
+##  workflows    * 0.2.6      2022-03-18 [1] CRAN (R 4.1.3)
+##  workflowsets * 0.2.1      2022-03-15 [1] CRAN (R 4.1.3)
+##  xfun           0.30       2022-03-02 [1] CRAN (R 4.1.3)
+##  xml2           1.3.3      2021-11-30 [1] CRAN (R 4.1.3)
+##  yaml           2.3.5      2022-02-21 [1] CRAN (R 4.1.2)
+##  yardstick    * 0.0.9      2021-11-22 [1] CRAN (R 4.1.2)
+## 
+##  [1] Z:/Users/Owner/Documents/R/win-library/4.1
+##  [2] C:/Program Files/R/R-4.1.2/library
+## 
+## ------------------------------------------------------------------------------</code></pre>
 </div>
 <div class="footnotes">
 <hr />
 <ol>
-<li id="fn1"><p>Although this post focuses on R and Tidymodels, the parameter lists are based on sklearn models as they have more robust lists of adjustable parameters. Here, the decision tree classifier was my main reference.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn1"><p>From <a href="https://www.tidymodels.org/start/resampling/">Getting Started 3: Evaluate your model with resampling</a>, which goes into more depth with the EDA than we will here.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>Although this post focuses on R and Tidymodels, the parameter lists are based on sklearn models as they have more robust lists of adjustable parameters. Here, the <a href="https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html">decision tree classifier</a> was my main reference.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>Here, we are using the default ‘rpart’ (recursive partitioning) engine. <a href="https://cran.r-project.org/web/packages/rpart/vignettes/longintro.pdf">RPART</a> is a complex and powerful tool that merits its own exploration.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>A good place for an intrepid reader to start would be <code>?set_engine()</code><a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+<li id="fn5"><p>Indeed it does the help documentation <code>?rpart.control</code> details this and other default values.<a href="#fnref5" class="footnote-back">↩︎</a></p></li>
+<li id="fn6"><p><em>Note to Editor: I don’t have the time at the moment to go back and set the alpha lower, then repeat the tuning process. I may get time eventually. If I don’t and somebody who were planning to post this somewhere public were inclined to do it, I wouldn’t have any objections. It would be a simple change to the arguments to change the analysis, just add</em> <code>cost_complexity=.00001</code> <em>or similar to the other</em> <code>decision_tree()</code> <em>calls.</em><a href="#fnref6" class="footnote-back">↩︎</a></p></li>
 </ol>
 </div>

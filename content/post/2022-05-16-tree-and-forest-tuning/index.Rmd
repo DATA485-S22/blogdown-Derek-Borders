@@ -8,49 +8,806 @@ categories: []
 tags: []
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = T, warning=F, message=F, error=F)
+
+library(tidyverse)
+library(hrbrthemes)
+library(viridis)
+library(RColorBrewer)
+
+# Set default precision and penalize scientific notation
+options(digits=4, scipen=9) 
+
+# Set default theme for ggplot 
+mytheme <- 
+  theme_ipsum(base_family="Sans", base_size=14) + 
+  theme(
+    legend.position="None",
+    panel.grid.minor=element_blank()
+  )
+theme_set(mytheme)
+
+# Kable Extra table stuff
+library(kableExtra)
+options(kableExtra.html.bsTable = TRUE)
+```
+
 
 # Intro  
 
 Today I want to explore the process of model tuning within the context of the family of tree based models which conveniently share most of their hyperparameters. 
 
-Tree based models mostly fit into a strict hierarchy. At the root is the basic decision tree. A decision tree makes predictions by making decisions based on predictor variables about how to split the data. Each decision results in a binary split that improves the 'purity' of training samples in the resulting groups. This is a very interpretable model that doesn't always generalize particularly well. That is, decision trees' fatal flaw is that they are very prone to overfitting. 
+We will be using Tidymodels in R and will use one of their tutorials as a starting point: [Getting Started 4: Tune Model Parameters](https://www.tidymodels.org/start/tuning/). We will use the same [cell image](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-8-340) data from this tutorial and will be utilizing the same tools from the [tune](https://tune.tidymodels.org/) package in the process. 
 
-The next level is bagging, which uses a series of subsets of the training data to train a bunch of trees and averages (or otherwise combines) their decisions. This looks a lot like k-fold cross validation or bootstrapping, depending on the size of the samples and whether replacement is allowed. This helps a lot, but there is still room for improvement. 
+```{r}
+library(tidymodels)  # for many things, including tune
+library(rpart.plot)  # for visualizing a decision tree
+library(vip)         # for variable importance plots
+```
 
-Random forest improves on bagging by introducing some chaos into the growth of trees to reduce overfitting even further. This chaos takes the form of limiting the predictors available at each decision point of each tree to a random subset of the predictors. This allows for more variation in the shape of individual trees, reducing the accuracy of individual trees but improving the  accuracy of the ensemble as a whole. Random forest works very well for many things, even with default parameters. 
+## Data  
 
-Beyond random forest we get into ensembles that are essentially "less-random forests" or "smart forests". Two common models in this category are Gradient Boosted Models (GBM, GBC, GBR) and Bayesian Additive Regression Trees (BART). The main feature of these 'smart forests' is that each tree or group of trees is not grown completely at random, but rather is influenced by the residual variance in the predictions of the existing trees. The strength of the influence of prior trees is controlled by a learning rate parameter. These models are more powerful than random forest, but also more sensitive to proper tuning. 
+The cells data has class labels for 2019 cells — each cell is labeled as either poorly segmented (PS) or well-segmented (WS). Each also has a total of 56 predictors based on automated image analysis measurements. For example, avg_inten_ch_1 is the mean intensity of the data contained in the nucleus, area_ch_1 is the total size of the cell, and so on (some predictors are fairly arcane in nature).^[From [Getting Started 3: Evaluate your model with resampling](https://www.tidymodels.org/start/resampling/), which goes into more depth with the EDA than we will here.]
 
-## Trees  
+The most important things to keep in mind when tuning our models will be that we have 2019 observations and 56 predictors.
+
+```{r}
+data(cells, package = "modeldata")
+kable(head(cells)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  scroll_box(width = "100%")
+```
+
+We will, of course, split the data. 
+
+```{r}
+set.seed(123)
+split <- initial_split(cells %>% select(-case), strata = class)
+train <- training(split)
+test  <- testing(split)
+```
+
+
+
+## What are Tree-Based Models?  
+
+Tree based models are a family of related models that mostly fit into a strict hierarchy. They grow out of one another, as it were. At the root is the basic **decision tree**. A decision tree makes predictions by making a sequence of decisions based on predictor variables about how to split the data. Each decision results in a binary split that improves the 'purity' of training samples in the resulting groups. This is a very interpretable model that doesn't always generalize particularly well. That is, decision trees' fatal flaw is that they are very prone to overfitting. 
+
+```{r, echo=FALSE,out.width="80%", fig.cap="The basic shape of a decision tree.",fig.align='center'}
+knitr::include_graphics("tree_shape.png")
+``` 
+
+The next level is **bagging**, which uses a series of subsets of the training data to train a bunch of trees and averages (or otherwise combines) their decisions. This looks a lot like k-fold cross validation or bootstrapping, depending on the size of the samples and whether replacement is allowed. This helps a lot, but there is still room for improvement. 
+
+**Random forest** improves on bagging by introducing some chaos into the growth of trees to reduce overfitting even further. This chaos takes the form of limiting the predictors available at each decision point of each tree to a random subset of the predictors. This allows for more variation in the shape of individual trees, reducing the accuracy of individual trees but improving the  accuracy of the ensemble as a whole. Random forest works very well for many things, even with default parameters. 
+
+Beyond random forest we get into ensembles that are essentially "less-random forests" or "smart forests". Two common models in this category are **Gradient Boosted Models** (GBM, GBClassifer, GBRegressor) and **Bayesian Additive Regression Trees** (BART). The main feature of these 'smart forests' is that each tree or group of trees is not grown completely at random, but rather is influenced by the residual variance in the predictions of the existing trees. The strength of the influence of prior trees is controlled by a learning rate parameter. These models are more powerful than random forest, but also more sensitive to proper tuning. 
+
+
+
+
+
+
+
+# Trees  
 
 ```{r, echo=FALSE,out.width="80%", fig.cap="A giant rain tree. Image: Wikipedia",fig.show='hold',fig.align='center'}
 knitr::include_graphics("tree.jpg")
 ``` 
-The parameters that can be tuned for decision trees varies by the toolset or algorithm being used and the optional features implemented. Whether or not they can be tuned by specific tools, the following parameters are part of any decision tree model.^[Although this post focuses on R and Tidymodels, the parameter lists are based on sklearn models as they have more robust lists of adjustable parameters. Here, the decision tree classifier was my main reference.]
-
-### Purity Criterion   
-
-This determines whether 'Entropy' or the 'Gini Index' is used to evaluate node purity and what constitutes the best split. These two [metrics are very similar](https://quantdare.com/decision-trees-gini-vs-entropy/) and the distinction usually isn't important for tuning. The main practical difference is that Gini is less computationally expensive.  
-
-We will ignore this for now. The linked post does a good job of examining the difference if the reader is interested. 
+The parameters that can be tuned for decision trees varies by the toolset or algorithm being used and the optional features implemented. Whether or not they can be tuned by specific tools, the following parameters are part of any decision tree model.^[Although this post focuses on R and Tidymodels, the parameter lists are based on sklearn models as they have more robust lists of adjustable parameters. Here, the [decision tree classifier](https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html) was my main reference.] The ensemble models that extend decision trees necessarily use these same parameters for the trees they comprise, in addition to parameters that affect their unique functionality beyond the underlying trees. 
 
 
-### Tree Size: Maximum Depth & Maximum Leaf Nodes  
+Before we get into the parameters, we should specify our model. While selecting our model spec, we have to set the hyperparameters we would like to tune with the `tune` package.
+
+```{r}
+tune_spec <- 
+  decision_tree(
+    cost_complexity = tune(),
+    min_n = tune(),
+    tree_depth = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+tune_spec
+```
+
+Tidymodels' `decision_tree()` spec only gives us three parameters to tune, but that's fine, as we'll see. Additionally, it is possible to use other parameters depending on the individual engine selected.^[Here, we are using the default 'rpart' (recursive partitioning) engine. [RPART](https://cran.r-project.org/web/packages/rpart/vignettes/longintro.pdf) is a complex and powerful tool that merits its own exploration.] These can also be tuned using `tune()`. I leave this as an exercise for the reader.^[A good place for an intrepid reader to start would be `?set_engine()`]  
+
+It is also a good idea to get a baseline to start with. Let's see what kind of tree we get with the default arguments. 
+
+```{r}
+# Set Spec
+def_tree_spec <- 
+  decision_tree(
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main="Default Tree", tweak=1.3, roundint=F)
+```
+
+```{r}
+def_tree_acc
+```
+
+
+Our default arguments lead to a tree with a depth of 4, 6 leaf nodes, and an accuracy of .8355.
+
+
+## Purity Criterion   
+
+This determines whether 'Entropy' or the 'Gini Index' is used to evaluate node purity and what constitutes the best split. These two [metrics are very similar](https://quantdare.com/decision-trees-gini-vs-entropy/) and the distinction usually isn't important for tuning. The main practical difference is that Gini is less computationally expensive. This seems like the most probable reason Tidymodels doesn't give us the option to set this parameter. As we would expect, the RPart engine defaults to the Gini index.
+
+
+## Tree Size: Maximum Depth & Maximum Leaf Nodes  
 
 These parameters both serve to limit the overall size and therefore complexity of trees to reduce overfitting. 
 
 Maximum Depth limits the height of the tree, indirectly limiting the leaf nodes to $2^k$ for a tree of height $k$. This might result in some unavailable decisions at another layer of depth being unavailable while less good decisions are allowed at a higher level. On the other hand, this prevents the formation of trees that continuously subdivide the same node. 
 
+
+```{r, echo=F, out.width="33%", fig.cap="Trees limited to max depth 1, 2, & 3", fig.show='hold',fig.align='center', cache=T}
+# Depth 1
+def_tree_spec <- 
+  decision_tree(
+    tree_depth=1
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Max Depth: 1, Accuracy: ",
+  round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+# Depth 2
+def_tree_spec <- 
+  decision_tree(
+    tree_depth=2
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Max Depth: 2, Accuracy: ",
+  round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+# Depth 4 
+def_tree_spec <- 
+  decision_tree(
+    tree_depth=3
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Max Depth: 3, Accuracy: ",
+  round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+```
+
+
 Maximum leaf nodes, on the other hand, directly limit the number of possible leaf nodes. This allows for the growth of less balanced trees in pursuit of the best decisions available at each step. It also allows for a finer level of control on tree size, especially for larger trees where each level doubles the number of possible decisions. 
 
-These two parameters can work together or one can render the other moot, but they never work against each other. For example, a max depth of 4 and a max leaf nodes of 25 is the same as just using the max depth of 4. On the other hand, a max depth of 5 and a max leaf nodes of 10 can be seen as limiting the lankiness of a max leaf nodes 10 tree or limiting the fullness of the max depth 5 tree.
+These two parameters can work together or one can render the other moot, but they never work against each other. For example, a max depth of 4 and a max leaf nodes of 25 is the same as just using the max depth of 4. On the other hand, a max depth of 3 and a max leaf nodes of 5 can be seen as limiting the lankiness (not a technical term) of a max leaf nodes 5 tree or limiting the fullness of the max depth 3 tree.
 
 Most of the time, tuning one of these is plenty. However, if they are both tuned, they should be tuned in tandem to make sure both values are useful. 
 
+#### Tuning Max Depth with Tidymodels  
+
+Tidymodels allows us to tune max tree depth but not maximum leaf nodes.
+
+To do this, we will use a method called **[grid search](https://en.wikipedia.org/wiki/Hyperparameter_optimization#Grid_search)** which is a sort of brute force method. Grid creates a regular grid of values in n-dimensional space where n is the number of parameters to be tuned. It then trains models with parameter values for each point in the grid and compares the performance. Grid search can be slow and there are better, more complex methods, but they are beyond the scope of this post.
+
+We will use the `grid_regular()` function from the [Dials package](https://dials.tidymodels.org/) to do a **grid search**. Later, we'll do this with a 3 dimensional grid to tune all of our chosen parameters at the same time, but to start, let's try tuning them individually. 
+
+```{r}
+depth_grid <- grid_regular(tree_depth(), levels = 8)
+depth_grid
+```
+
+Different functions would allow us more fine grain control over the grid, but this version is fine. Tree depth defaults to a range from 1-15 and is divided into the specified number of levels. Selecting 8 gives us all the odd numbers of levels. 
+
+In order to use grid search, we'll have to create cross validation folds to compare performace between the different models. 
+
+```{r}
+set.seed(485)
+cv_folds <- vfold_cv(train)
+```
+
+
+We then create a workflow to perform the tuning. 
+
+```{r, cache=T}
+set.seed(485)
+
+depth_spec <- 
+  decision_tree(
+    tree_depth = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+depth_wf <- workflow() %>%
+  add_model(depth_spec) %>%
+  add_formula(class ~ .)
+
+depth_res <- 
+  depth_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = depth_grid
+    )
+```
+We could look at the cross fold validation results directly, but with this set, interpretation is too difficult to be worth printing the results directly. Metrics and visualizations will paint a much clearer picture. 
+
+```{r}
+depth_res %>% 
+  collect_metrics() %>%
+  select(-.config) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  scroll_box(height="300px")
+```
+
+A close look at the metrics reveals that the accuracy peaks at a depth of 3 and plateaus. This is not surprising as our default tree only had a depth of 4. We can see the same by plotting the accuracy and roc accuracy against tree depth. 
 
 
 
-## Random Forest  
+```{r}
+depth_res %>%
+  collect_metrics() %>%
+  ggplot(aes(tree_depth, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color="#C7B27C") +
+  geom_point(size = 5, color="#97b063", shape=17) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  labs(
+    title="Accuracy of Different Tree Depths"
+  )
+```
+
+We can use `show_best()` to get the top five (or however many we want) candidates, and `select_best()` to pull the best set or hyperparameters for our final model. This will be more useful when we have more dimensions in our grid search, so we'll come back to them. 
+
+When we do combine these later, it will take far too long to run 8 splits in each dimension. When the time comes, we'll manually force our grid along the depth axis to search each depth from two to five. This will help with speed by limiting the number of depths to try, but will also give us a finer granularity than we got here with only checking odds depths. 
+
+
+## Minimum Samples per Leaf & Split  
+
+Another way to limit tree size indirectly is to constrain the minimum number of samples that can end up in a leaf or the minimum number of samples that a node can have if it is to be split. Rather than directly constraining the final size of the tree, they constrain the splitting process using the size before and after the split. Like constraining tree size directly, the idea here is to reduce overfitting by not allowing branches to become ultra fine to the point of splitting down to just one or two samples. 
+
+These two parameters have an obvious interaction in that they almost do the same thing. Tuning only minimum samples for splits allows for splits that shave off as few as one sample from the parent node. Tuning only minimum samples for leaves allows splits as small as double this size. As was the case above, these don't directly contradict one another, but if they are poorly tuned they can preempt one another. Typically we would start by tuning one or the other of these, and if we decide to tune them both, they should be tuned in tandem to limit one another's edge cases. A minimum split size of 10 might go well with a minimum leaf size of 3, for example, but a minimum split size of 4 and a minimum leaf size of 2 would be redundant.
+
+
+#### Tuning Minimum Samples per Split with Tidymodels   
+
+Tidymodels allows us to tune minimum samples per split with the `min_n` parameter. I'll hide most of the repeat code going forward to keep things trim. At each tuning step until the end when we do a 3d grid, I'll force the previously tuned parameters to their optimal values according to their individual grid search. In practice, we would  do all of our grid search at once, but we want to look at each hyperparameter individually as we explore.
+
+```{r, echo=F}
+split_spec <- 
+  decision_tree(
+    min_n = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+split_spec 
+
+split_grid <- grid_regular(min_n(), levels = 7)
+split_grid
+```
+
+I don't really care for the default result here. Let's change this to be a sequence of doubling minimum split sizes instead. 
+
+```{r}
+split_grid$min_n = c(2,4,8,16,32,64,128)
+split_grid
+```
+
+```{r, cache=T}
+set.seed(485)
+
+split_wf <- workflow() %>%
+  add_model(split_spec) %>%
+  add_formula(class ~ .)
+
+split_res <- 
+  split_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = split_grid
+    )
+
+split_res %>%
+  collect_metrics() %>%
+  ggplot(aes(min_n, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color="#C7B27C") +
+  geom_point(size = 5, color="#97b063", shape=17) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  scale_x_log10(breaks=c(2,4,8,16,32,64,128)) + 
+  labs(
+    title="Accuracy of Different Minimum Split Sizes",
+    caption="Max depth = 3"
+  )
+```
+
+Don't be fooled by the drop off in the plot, this is a rock solid accuracy, meaning our tuning of `min_n` is doing almost nothing. My guess is that the depth of 3 with our training sample size of `r nrow(train)` means we're already effectively constraining minimum sample size. Let's try again without constraining the tree size. 
+
+```{r, cache=T, echo=F}
+set.seed(485)
+
+split_wf <- workflow() %>%
+  add_model(split_spec) %>%
+  add_formula(class ~ .)
+
+split_res <- 
+  split_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = split_grid
+    )
+
+split_res %>%
+  collect_metrics() %>%
+  ggplot(aes(min_n, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color="#C7B27C") +
+  geom_point(size = 5, color="#97b063", shape=17) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  scale_x_log10(breaks=c(2,4,8,16,32,64,128)) + 
+  labs(
+    title="Accuracy of Different Minimum Split Sizes"
+  )
+```
+
+That's more like it. We see what looks like a peak around 64 without much action prior to 16. Lets narrow our grid and go back to a linear scale to see if we can pin down something better than 64. 
+
+```{r, cache=T, echo=F}
+set.seed(485)
+
+split_grid$min_n = c(30,40,50,60,70,80,90)
+
+split_wf <- workflow() %>%
+  add_model(split_spec) %>%
+  add_formula(class ~ .)
+
+split_res <- 
+  split_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = split_grid
+    )
+
+split_res %>%
+  collect_metrics() %>%
+  ggplot(aes(min_n, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color="#C7B27C") +
+  geom_point(size = 5, color="#97b063", shape=17) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  scale_x_continuous(breaks=c(30,40,50,60,70,80,90)) + 
+  labs(
+    title="Accuracy of Different Minimum Split Sizes"
+  )
+```
+
+I'm tempted to go with a finer grain, but way these bounce around now makes me think we'd be tuning to extract signal from noise. It looks like things plateau around 70, so with our final grid later we'll try something like 60, 70, 80. 
+
+We can also take a look at how the minimum split size affects the tree growth. We may or may not get any visible results here. 
+
+```{r, echo=F, out.width="50%", fig.cap="Trees limited to min split size 70 & 100", fig.show='hold',fig.align='center'}
+
+# n=70
+def_tree_spec <- 
+  decision_tree(
+    min_n=70
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Min Split Size: 70, Accuracy: ",
+  round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+# n=100
+def_tree_spec <- 
+  decision_tree(
+    min_n=100
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Min Split Size: 100, Accuracy: ",
+  round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+```
+
+
+We see no change from the default tree when limiting the split size to 40 or 70, which is a little surprising for 70 at least, given our results above. In the context of our sample size, with 10-fold cross validation (the default for RPart), we should have training sets of effectively `r nrow(train)*.9` rows. Our smallest default split was 7%, or about `r ceiling(nrow(train)*.9*.07)`. So we aren't reliably affecting the default until we get up to around 100. 
+
+It is good to know that we get very similar accuracy with a decision that splits 31% of the training data into subgroups not only changing its threshold, but using a different predictor. This seems like a sign that our decision tree is probably not especially overfit.
+
+
+
+## Minimum Impurity Decrease 
+
+Some models allow for tuning of the minimum allowable decrease in impurity, that is, the minimum improvement in Entropy or the Gini index resulting from a potential split. This compares the parent node's impurity against the impurities of the left and right children, all weighted by the number of observations in each. This is a way of limiting tree growth, similar to the previous parameters, but instead of limiting tree size directly, it adjusts the criteria for whether or not to split nodes directly. 
+
+We can't directly tune this with Tidymodels, but it's similar enough to minimum split size and cost complexity that we shouldn't need to anyhow. As we already saw, tuning minimum split size and max depth together alread creats a bit of overlap. 
+
+
+
+## Cost Complexity Pruning Parameter  
+
+Most models allow for tuning of the cost complexity parameter used in pruning. Conceptually, this is similar to the min impurity decrease in reverse. 
+
+Where minimum impurity decrease operates to limit initial tree, the cost complexity operates on the pruning process, which happens after a tree has been grown. Where minimum impurity decrease only allows decisions that improve the purity by a specified amount, the cost complexity parameter ($\alpha$ or $C$ depending on the package) sets a threshold of increasing impurity at which to stop the pruning process. 
+
+
+#### Tuning Cost Complexity with Tidymodels  
+
+Because cost complexity is a pruning method, we want the tree to be a little overgrown to start, so we'll try this first without setting any of the other parameters. 
+
+```{r, echo=F}
+alpha_spec <- 
+  decision_tree(
+    cost_complexity=tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+alpha_spec 
+
+alpha_grid <- grid_regular(cost_complexity(), levels = 4)
+alpha_grid
+```
+
+The default range for cost complexity is $1.0\times10^-1$ to $1.0\times10^-10$. Feeding `grid_regular` a level count of 4 gives us these nice, round numbered levels. 
+
+```{r, cache=T, echo=F}
+set.seed(485)
+
+alpha_wf <- workflow() %>%
+  add_model(alpha_spec) %>%
+  add_formula(class ~ .)
+
+alpha_res <- 
+  alpha_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = alpha_grid
+    )
+```
+
+
+```{r, cache=T, echo=F}
+alpha_res %>%
+  collect_metrics() %>%
+  ggplot(aes(cost_complexity, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color="#C7B27C") +
+  geom_point(size = 5, color="#97b063", shape=17) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  scale_x_log10(breaks=alpha_grid$cost_complexity) + 
+  labs(
+    title="Accuracy of Different Cost Complexities"
+  )
+``` 
+
+Again, we don't have a very granular grid and a large swath of it isn't useful. Let's tighten up the spread to between .0001 and .1. 
+
+
+```{r, cache=T, echo=F}
+set.seed(485)
+
+alpha_grid$cost_complexity = c(1/10, 1/100, 1/1000, 1/10000)
+
+
+alpha_wf <- workflow() %>%
+  add_model(alpha_spec) %>%
+  add_formula(class ~ .)
+
+alpha_res <- 
+  alpha_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = alpha_grid
+    )
+```
+
+
+```{r, cache=T, echo=F}
+alpha_res %>%
+  collect_metrics() %>%
+  ggplot(aes(cost_complexity, mean)) + 
+  theme_minimal() + 
+  theme(panel.grid.minor=element_blank()) +
+  geom_line(size = 1.5, alpha = 0.6, color="#C7B27C") +
+  geom_point(size = 5, color="#97b063", shape=17) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  scale_x_log10(breaks=alpha_grid$cost_complexity) + 
+  labs(
+    title="Accuracy of Different Cost Complexities"
+  )
+``` 
+
+
+That's better. We'll use this same grid range in our combined grid search. 
+
+Given how long these are taking, we'll go ahead and trim each dimension of our grid down to 3 values that we'll set by hand. 
+
+Again, lets see if we can tell what impact our pruning parameter is having. Just for good measure, I want to look at a very high value for alpha as well, like .3.
+
+```{r, echo=F, out.width="50%", fig.cap="Trees Pruned Using Cost Complexity alpha values of .001, .01, .1, & .3", fig.show='hold',fig.align='center'}
+
+# Cost complexity = ...
+cca <- .001
+def_tree_spec <- 
+  decision_tree(
+    cost_complexity=cca
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Cost Complexity Alpha: ", cca, 
+  ", Accuracy: ", round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+
+# Cost complexity = ...
+cca <- .01
+def_tree_spec <- 
+  decision_tree(
+    cost_complexity=cca
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Cost Complexity Alpha: ", cca, 
+  ", Accuracy: ", round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+
+# Cost complexity = ...
+cca <- .1
+def_tree_spec <- 
+  decision_tree(
+    cost_complexity=cca
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Cost Complexity Alpha: ", cca, 
+  ", Accuracy: ", round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+
+# Cost complexity = ...
+cca <- .2
+def_tree_spec <- 
+  decision_tree(
+    cost_complexity=cca
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Fit Model
+set.seed(485)
+def_tree_fit <- def_tree_spec %>%
+  fit(class ~ ., data = train)
+# Get accuracy
+def_tree_acc <- augment(def_tree_fit, new_data = train) %>%
+  accuracy(truth = class, estimate = .pred_class)
+temp_title <- paste(
+  "Cost Complexity Alpha: ", cca, 
+  ", Accuracy: ", round(def_tree_acc$.estimate,4)
+)
+# Visualize
+def_tree_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot(main=temp_title, tweak=1.3, roundint=F)
+
+
+```
+
+Interesting. This first plot is closer to what I'd have expected for the result of using the default arguments. It seems RPart engages in pruning by default, apparently with a default alpha of .01.^[Indeed it does the help documentation `?rpart.control` details this and other default values.]
+
+
+That probably explains why some of our other tuning seems less impactful than we might expect. And why our default tree classifying a thousand and a half samples only ends up with 6 leaves.^[*Note to Editor: I don't have the time at the moment to go back and set the alpha lower, then repeat the tuning process. I may get time eventually. If I don't and somebody who were planning to post this somewhere public were inclined to do it, I wouldn't have any objections. It would be a simple change to the arguments to change the analysis, just add* `cost_complexity=.00001` *or similar to the other* `decision_tree()` *calls.*] 
+
+
+
+
+
+
+#### Combined Grid Search  
+
+We won't try to visualize the results of this search because the higher dimensionality makes that tricky. It could be done, but we have an idea of how the different parameters change accuracy already, so we'll just run the combined search and look at the top few candidates. Doing two parameters does work nicely for visualizations though. 
+
+```{r, echo=F}
+tune_spec
+```
+
+
+```{r, echo=F}
+tune_grid <- grid_regular(cost_complexity(),
+                          min_n(),
+                          tree_depth())
+tune_grid
+```
+
+I know there must be a better way to do this, but I can't seem to find it, so here's the hacky way I'm forcing `grid_regular()` to use my custom ranges. 
+
+
+```{r}
+tune_grid$min_n <- rep(  c( rep(60,3), rep(70,3), rep(80,3)), 3)
+
+tune_grid$tree_depth <- c(rep(2,9),rep(3,9),rep(4,9))
+
+tune_grid$cost_complexity <- rep(c(.001,.01,.1),9)
+```
+
+
+```{r, cache=T, echo=F}
+set.seed(485)
+
+tune_wf <- workflow() %>%
+  add_model(tune_spec) %>%
+  add_formula(class ~ .)
+
+tune_res <- 
+  tune_wf %>% 
+  tune_grid(
+    resamples = cv_folds,
+    grid = tune_grid
+    )
+```
+
+From the 27 parameter candidates, these are the 5 with the best accuracy: 
+
+```{r}
+tune_res %>%
+  show_best("accuracy")
+```
+
+From the 27 parameter candidates, these are the 5 with the area under the ROC curve:  
+
+```{r}
+tune_res %>%
+  show_best("roc_auc")
+```
+
+The difference between any of these five options for either metric is extremely small, so we'll just go forward with the top result for accuracy. 
+
+```{r}
+best_tree <- tune_res %>%
+  select_best("accuracy")
+
+best_tree
+```
+
+
+## Number of Predictors  
+
+With sklearn, it is possible to tune this value for individual trees, but it doesn't really make sense to do so. None of the tidymodels engines allow this to be tuned for decision trees. This is the defining parameter of random forests so we'll come back to it in the next section.
+
+
+# Random Forest  
 
 ```{r, echo=FALSE,out.width="80%", fig.cap="",fig.show='hold',fig.align='center'}
 knitr::include_graphics("forest2.jpg")
@@ -59,10 +816,23 @@ knitr::include_graphics("forest2.jpg")
 
 <a href="https://www.freepik.com/photos/haunted">Image by kjpargeter - www.freepik.com</a>
 
-## Gradient Boosted Ensemble  
+# Gradient Boosted Ensemble  
 
 ```{r, echo=FALSE,out.width="80%", fig.cap="Intelligent forest. ",fig.show='hold',fig.align='center'}
 knitr::include_graphics("smart-forest2.jpg")
 ``` 
 
 [Image: TKSST](https://thekidshouldseethis.com/post/the-wood-wide-web-how-trees-secretly-talk-to-and-share-with-each-other)
+
+
+# References  
+
+In addition to the linked resources throughout, the following resources 
+
+
+# Session Info  
+
+```{r}
+sessioninfo::session_info()
+```
+
